@@ -176,6 +176,12 @@ namespace Client
             
             try
             {
+                // Simulate random task failures (10% failure rate for testing)
+                if (random.Next(1, 11) == 1) // 10% chance
+                {
+                    throw new Exception("Simulated random task failure for testing");
+                }
+
                 // Simulate time-consuming work
                 Task.Delay(random.Next(1000, 3000)).Wait(); 
                 
@@ -191,11 +197,18 @@ namespace Client
                     default:
                         throw new Exception("Unknown task type");
                 }
+
+                // Add retry information to result for monitoring
+                if (task.RetryCount > 0)
+                {
+                    result.ResultData += $" (Completed on retry #{task.RetryCount})";
+                }
             }
             catch (Exception e)
             {
                 result.Success = false;
                 result.ResultData = $"EXECUTION ERROR: {e.Message}";
+                Console.WriteLine($"[Task Failed] Task {task.TaskId} failed: {e.Message}");
             }
             
             return result;

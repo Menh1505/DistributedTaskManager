@@ -30,6 +30,9 @@ namespace Shared
         public string TaskId { get; set; } = string.Empty;
         public TaskType Type { get; set; }
         public string Data { get; set; } = string.Empty; // Input data
+        public int RetryCount { get; set; } = 0; // Number of retry attempts
+        public DateTime CreatedAt { get; set; } = DateTime.Now; // Task creation time
+        public DateTime? LastRetryAt { get; set; } // Last retry timestamp
     }
 
     // Class sent from Client back to Server

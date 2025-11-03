@@ -64,6 +64,9 @@ Open additional terminals and run the above command to have multiple clients sim
 - ✅ **Heartbeat monitoring system** ❤️
 - ✅ Dead client detection and cleanup
 - ✅ Message-based communication protocol
+- ✅ **Task retry mechanism** 🔁
+- ✅ **Dead-letter queue** for failed tasks
+- ✅ Automatic task recovery and reprocessing
 
 ### Client Features
 - ✅ TCP connection to server
@@ -99,6 +102,12 @@ Open additional terminals and run the above command to have multiple clients sim
 - **Client ping interval**: 10 seconds
 - **Server heartbeat timeout**: 30 seconds
 - **Heartbeat monitor check**: 5 seconds
+
+### Task Retry Settings 🔁
+- **Maximum retry attempts**: 3 times
+- **Retry on client death**: Automatic
+- **Dead-letter queue**: For failed tasks after max retries
+- **Task failure simulation**: 10% random failure rate (testing)
 
 ## 📈 Performance
 
@@ -140,6 +149,54 @@ Client                          Server
   |                               | (Check: Now - LastHeartbeatTime > 30s?)
   |                               | (If yes: Remove client)
 ```
+
+## 🔁 Task Retry & Dead-Letter Queue
+
+### Problem Solved
+When a client dies (detected by heartbeat timeout or IOException) while processing a task (`Status = Busy`), the task would be lost forever. This could result in important work being permanently lost.
+
+### Solution Implementation
+
+**Task Tracking:**
+- Each `ClientHandler` stores its current task in `_currentTask`
+- When task is assigned: `_currentTask = task`
+- When result received: `_currentTask = null`
+
+**Retry Logic:**
+- When client dies unexpectedly, current task is automatically retried
+- Task gets `RetryCount++` and `LastRetryAt` timestamp
+- If `RetryCount < MAX_RETRY_COUNT` (3): task goes back to main queue
+- If `RetryCount >= MAX_RETRY_COUNT`: task moves to dead-letter queue
+
+**Dead-Letter Queue:**
+- Persistent storage for tasks that failed all retry attempts
+- Logged to `dead-letter-queue.log` file for audit trail
+- Admin functions to reprocess or clear dead-letter tasks
+- Monitoring and statistics reporting
+
+### Task Lifecycle Flow
+```
+Task Created → Task Queue → Assigned to Client → Processing
+                    ↑              ↓
+                Retry Queue    Client Dies/Fails
+                    ↑              ↓
+            (if RetryCount < 3)  RetryCount++
+                    ↑              ↓
+                    ←──────────────┘
+                                   ↓
+                           (if RetryCount >= 3)
+                                   ↓ 
+                            Dead-Letter Queue
+                                   ↓
+                             Audit Log File
+```
+
+### Monitoring Features
+- Real-time statistics every 5 minutes
+- Dead-letter queue size monitoring
+- Client task status tracking
+- Retry attempt logging
+- Admin functions for queue management
 
 ## 🧪 Testing
 

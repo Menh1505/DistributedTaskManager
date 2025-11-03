@@ -18,16 +18,21 @@ namespace Server
         // 2. Client management list (thread-safe)
         private static ConcurrentDictionary<string, ClientHandler> _clientHandlers = new ConcurrentDictionary<string, ClientHandler>();
 
+        // 3. Dead-letter queue for failed tasks (thread-safe)
+        private static ConcurrentQueue<TaskMessage> _deadLetterQueue = new ConcurrentQueue<TaskMessage>();
+
         private static int _taskCounter = 0; // For generating task IDs
+        private const int MAX_RETRY_COUNT = 3; // Maximum retry attempts
 
         static async Task Main(string[] args)
         {
-            // Run 3 background tasks (background threads)
+            // Run 4 background tasks (background threads)
             _ = TaskProducerAsync();      // Task 1: Continuously create new tasks
             _ = TaskDispatcherAsync();    // Task 2: Continuously dispatch tasks
             _ = HeartbeatMonitorAsync();  // Task 3: Monitor client heartbeats
+            _ = DeadLetterMonitorAsync(); // Task 4: Monitor dead-letter queue
 
-            // Task 4 (Main): Listen for client connections
+            // Task 5 (Main): Listen for client connections
             await StartServerListenerAsync(); 
         }
 
@@ -45,7 +50,7 @@ namespace Server
                     TcpClient client = await server.AcceptTcpClientAsync();
                     
                     // Create a new handler for the client
-                    var clientHandler = new ClientHandler(client, _clientHandlers, Log);
+                    var clientHandler = new ClientHandler(client, _clientHandlers, _taskQueue, _deadLetterQueue, MAX_RETRY_COUNT, Log);
                     _clientHandlers.TryAdd(clientHandler.Id, clientHandler);
 
                     Log($"Client {clientHandler.Id} connected. Total clients: {_clientHandlers.Count}");
@@ -151,6 +156,102 @@ namespace Server
                 // Check every 5 seconds
                 await Task.Delay(5000);
             }
+        }
+
+        // Background loop 4: Dead-letter queue monitor
+        static async Task DeadLetterMonitorAsync()
+        {
+            Log("[DeadLetterMonitor] Starting dead-letter queue monitoring...");
+            int lastReportedCount = 0;
+            
+            while (true)
+            {
+                var currentCount = _deadLetterQueue.Count;
+                
+                // Report dead-letter queue size changes
+                if (currentCount != lastReportedCount)
+                {
+                    Log($"[DeadLetterMonitor] Dead-letter queue size: {currentCount} tasks");
+                    lastReportedCount = currentCount;
+                }
+                
+                // Periodic statistics report (every 5 minutes)
+                if (DateTime.Now.Minute % 5 == 0 && DateTime.Now.Second < 30)
+                {
+                    LogStatistics();
+                }
+                
+                // Check every 30 seconds
+                await Task.Delay(30000);
+            }
+        }
+
+        // Log system statistics
+        static void LogStatistics()
+        {
+            var activeClients = _clientHandlers.Count;
+            var idleClients = _clientHandlers.Values.Count(c => c.Status == ClientStatus.Idle);
+            var busyClients = _clientHandlers.Values.Count(c => c.Status == ClientStatus.Busy);
+            var pendingTasks = _taskQueue.Count;
+            var deadLetterTasks = _deadLetterQueue.Count;
+            
+            Log($"[Statistics] Active Clients: {activeClients} (Idle: {idleClients}, Busy: {busyClients})");
+            Log($"[Statistics] Pending Tasks: {pendingTasks}, Dead-Letter: {deadLetterTasks}");
+            
+            // Log current tasks for busy clients
+            foreach (var client in _clientHandlers.Values.Where(c => c.Status == ClientStatus.Busy))
+            {
+                Log($"[Statistics] Client {client.Id}: {client.GetCurrentTaskInfo()}");
+            }
+        }
+
+        // Reprocess all dead-letter tasks (admin function)
+        public static int ReprocessDeadLetterTasks()
+        {
+            int reprocessedCount = 0;
+            var tasksToReprocess = new List<TaskMessage>();
+            
+            // Collect all dead-letter tasks
+            while (_deadLetterQueue.TryDequeue(out TaskMessage? task))
+            {
+                if (task != null)
+                {
+                    task.RetryCount = 0; // Reset retry count
+                    task.LastRetryAt = null;
+                    tasksToReprocess.Add(task);
+                }
+            }
+            
+            // Re-enqueue to main task queue
+            foreach (var task in tasksToReprocess)
+            {
+                _taskQueue.Enqueue(task);
+                reprocessedCount++;
+            }
+            
+            Log($"[Admin] Reprocessed {reprocessedCount} tasks from dead-letter queue");
+            return reprocessedCount;
+        }
+
+        // Clear dead-letter queue (admin function)
+        public static int ClearDeadLetterQueue()
+        {
+            int clearedCount = 0;
+            while (_deadLetterQueue.TryDequeue(out _))
+            {
+                clearedCount++;
+            }
+            
+            Log($"[Admin] Cleared {clearedCount} tasks from dead-letter queue");
+            return clearedCount;
+        }
+
+        // Get dead-letter queue statistics
+        public static void GetDeadLetterStatistics()
+        {
+            Log($"[Statistics] Dead-letter queue size: {_deadLetterQueue.Count}");
+            Log($"[Statistics] Main task queue size: {_taskQueue.Count}");
+            Log($"[Statistics] Active clients: {_clientHandlers.Count}");
         }
 
         // Helper log (to distinguish output)

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added 🔁 **Task Retry & Dead-Letter Queue System**
+- **Task retry mechanism**: Automatic retry of failed tasks up to 3 attempts
+- **Dead-letter queue**: Persistent storage for tasks that exceed max retry attempts
+- **Current task tracking**: ClientHandler tracks assigned tasks for failure recovery
+- **Task failure recovery**: Automatic requeuing when client dies during task processing
+- **Audit logging**: Dead-letter tasks logged to `dead-letter-queue.log` file
+- **Admin functions**: Reprocess or clear dead-letter queue programmatically
+- **Failure statistics**: Real-time monitoring of task success/failure rates
+- **Retry metadata**: Tasks include RetryCount, CreatedAt, LastRetryAt timestamps
+- **Dead-letter monitoring**: Background thread monitoring dead-letter queue size
+- **Task lifecycle tracking**: Complete task journey from creation to completion/failure
+
 ### Added ❤️ **Heartbeat System**
 - **Heartbeat mechanism**: Client-server ping-pong system for health monitoring
 - **Dead client detection**: Automatic detection and removal of unresponsive clients
@@ -23,15 +35,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Logging improvements**: Better heartbeat monitoring logs
 
 ### Technical
-- Added MessageType enum (Task, Result, PingRequest, PingResponse)
-- BaseMessage class as foundation for all messages
-- PingMessage and PongMessage for heartbeat communication
-- TaskWrapper and ResultWrapper for structured messaging
-- ClientHandler implements IDisposable for proper cleanup
-- HeartbeatMonitorAsync background task in server
-- SendHeartbeatAsync background task in client
-- LastHeartbeatTime tracking for each client
-- IsAlive method for heartbeat validation
+- **Task Retry System**: 
+  - TaskMessage enhanced with RetryCount, CreatedAt, LastRetryAt fields
+  - ConcurrentQueue<TaskMessage> _deadLetterQueue for failed tasks
+  - ClientHandler._currentTask for tracking assigned tasks
+  - LogDeadLetterTaskAsync for audit trail logging
+  - DeadLetterMonitorAsync background monitoring thread
+  - ReprocessDeadLetterTasks and ClearDeadLetterQueue admin functions
+  - GetCurrentTaskInfo for runtime task monitoring
+  - MAX_RETRY_COUNT configuration (default: 3)
+  - Task failure simulation for testing (10% random failure)
+
+- **Heartbeat System**:
+  - MessageType enum (Task, Result, PingRequest, PingResponse)
+  - BaseMessage class as foundation for all messages
+  - PingMessage and PongMessage for heartbeat communication
+  - TaskWrapper and ResultWrapper for structured messaging
+  - ClientHandler implements IDisposable for proper cleanup
+  - HeartbeatMonitorAsync background task in server
+  - SendHeartbeatAsync background task in client
+  - LastHeartbeatTime tracking for each client
+  - IsAlive method for heartbeat validation
 
 ## [1.0.0] - 2025-11-03
 
