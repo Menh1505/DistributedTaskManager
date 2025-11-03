@@ -1,58 +1,58 @@
 # Distributed Task Manager
 
-Một hệ thống quản lý tác vụ phân tán được xây dựng bằng C# .NET 8, cho phép server phân phối các tác vụ tới nhiều client để xử lý song song.
+A distributed task management system built with C# .NET 8, allowing servers to distribute tasks to multiple clients for parallel processing.
 
-## 🏗️ Kiến trúc
+## 🏗️ Architecture
 
-Dự án được chia thành 3 project chính:
+The project is divided into 3 main projects:
 
 ### 📁 Shared
-- **Message.cs**: Định nghĩa các message types và data models
-- Chứa các enum và class dùng chung giữa Server và Client
+- **Message.cs**: Defines message types and data models
+- Contains enums and classes shared between Server and Client
 
 ### 🖥️ Server
-- **Program.cs**: Server chính với multi-threading
-- **ClientHandler.cs**: Xử lý từng client connection
-- Tính năng:
-  - Multi-threading để phục vụ nhiều client đồng thời
-  - Task queue với ConcurrentQueue
-  - Task dispatcher tự động
+- **Program.cs**: Main server with multi-threading
+- **ClientHandler.cs**: Handles individual client connections
+- Features:
+  - Multi-threading to serve multiple clients simultaneously
+  - Task queue with ConcurrentQueue
+  - Automatic task dispatcher
   - Task producer (demo)
 
 ### 💻 Client
-- **Program.cs**: Client kết nối và xử lý tasks
-- Tính năng:
-  - Kết nối TCP tới server
-  - Nhận và xử lý tasks (CheckPrime, HashText)
-  - Gửi kết quả về server
+- **Program.cs**: Client connects and processes tasks
+- Features:
+  - TCP connection to server
+  - Receive and process tasks (CheckPrime, HashText)
+  - Send results back to server
 
-## 🚀 Cách chạy
+## 🚀 How to Run
 
-### Yêu cầu hệ thống
+### System Requirements
 - .NET 8.0 SDK
 - OS: Windows, Linux, macOS
 
-### Build project
+### Build Project
 ```bash
 dotnet build
 ```
 
-### Chạy Server
+### Run Server
 ```bash
 cd Server
 dotnet run
 ```
 
-### Chạy Client (terminal khác)
+### Run Client (different terminal)
 ```bash
 cd Client
 dotnet run
 ```
 
-### Chạy nhiều Client
-Mở thêm terminal và chạy lệnh trên để có nhiều client đồng thời.
+### Run Multiple Clients
+Open additional terminals and run the above command to have multiple clients simultaneously.
 
-## 📊 Tính năng
+## 📊 Features
 
 ### Server Features
 - ✅ Multi-threading architecture
@@ -69,15 +69,15 @@ Mở thêm terminal và chạy lệnh trên để có nhiều client đồng th�
 - ✅ Auto-reconnection support
 
 ### Task Types
-1. **CheckPrime**: Kiểm tra số nguyên tố
-2. **HashText**: Tạo hash SHA256 cho chuỗi text
+1. **CheckPrime**: Prime number checking
+2. **HashText**: Generate SHA256 hash for text strings
 
-## 🔧 Cấu hình
+## 🔧 Configuration
 
 ### Network Settings
 - **Port**: 12345
 - **Protocol**: TCP
-- **Address**: localhost (có thể thay đổi)
+- **Address**: localhost (configurable)
 
 ### Performance Settings
 - **Task generation interval**: 2 seconds
@@ -86,15 +86,15 @@ Mở thêm terminal và chạy lệnh trên để có nhiều client đồng th�
 
 ## 📈 Performance
 
-Hệ thống được thiết kế để:
-- Xử lý hàng trăm client đồng thời
-- Phân phối task hiệu quả
-- Scale theo số lượng CPU cores
-- Minimal memory footprint
+The system is designed to:
+- Handle hundreds of clients simultaneously
+- Distribute tasks efficiently
+- Scale according to CPU core count
+- Maintain minimal memory footprint
 
 ## 🧪 Testing
 
-### Test với 1 Server + 3 Clients
+### Test with 1 Server + 3 Clients
 ```bash
 # Terminal 1
 cd Server && dotnet run
@@ -109,7 +109,7 @@ cd Client && dotnet run
 cd Client && dotnet run
 ```
 
-Quan sát log để thấy server phân phối task cho các client khác nhau.
+Observe the logs to see the server distributing tasks to different clients.
 
 ## 🔧 Development
 

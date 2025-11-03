@@ -1,31 +1,31 @@
 # Contributing to Distributed Task Manager
 
-Chúng tôi rất hoan nghênh sự đóng góp từ cộng đồng! Tài liệu này sẽ hướng dẫn bạn cách đóng góp vào dự án.
+We welcome contributions from the community! This document will guide you on how to contribute to the project.
 
-## 🚀 Cách bắt đầu
+## 🚀 Getting Started
 
 ### Prerequisites
 - .NET 8.0 SDK
 - Git
-- VS Code hoặc Visual Studio
-- Kiến thức cơ bản về C# và networking
+- VS Code or Visual Studio
+- Basic knowledge of C# and networking
 
 ### Setup Development Environment
 
 1. **Fork repository**
    ```bash
-   # Fork trên GitHub, sau đó clone
+   # Fork on GitHub, then clone
    git clone https://github.com/yourusername/DistributedTaskManager.git
    cd DistributedTaskManager
    ```
 
-2. **Build và test**
+2. **Build and test**
    ```bash
    dotnet build
-   dotnet test  # Khi có unit tests
+   dotnet test  # When unit tests are available
    ```
 
-3. **Chạy application**
+3. **Run application**
    ```bash
    # Terminal 1
    cd Server && dotnet run
@@ -37,11 +37,11 @@ Chúng tôi rất hoan nghênh sự đóng góp từ cộng đồng! Tài liệu
 ## 📝 Development Guidelines
 
 ### Code Style
-- Sử dụng **PascalCase** cho methods, properties, classes
-- Sử dụng **camelCase** cho local variables
-- Sử dụng **async/await** thay vì .Result hoặc .Wait()
-- Luôn dispose resources (using statements)
-- Exception handling đầy đủ
+- Use **PascalCase** for methods, properties, classes
+- Use **camelCase** for local variables
+- Use **async/await** instead of .Result or .Wait()
+- Always dispose resources (using statements)
+- Comprehensive exception handling
 
 ### Naming Conventions
 ```csharp
@@ -61,8 +61,8 @@ public class taskdispatcher
 ```
 
 ### Architecture Principles
-- **Single Responsibility**: Mỗi class có một nhiệm vụ rõ ràng
-- **Thread Safety**: Sử dụng Concurrent collections
+- **Single Responsibility**: Each class has a clear purpose
+- **Thread Safety**: Use concurrent collections
 - **Async Programming**: Non-blocking operations
 - **Error Handling**: Graceful degradation
 - **Resource Management**: Proper disposal
@@ -70,35 +70,35 @@ public class taskdispatcher
 ## 🎯 Types of Contributions
 
 ### 🐛 Bug Reports
-Khi báo bug, bao gồm:
-- OS và .NET version
+When reporting bugs, include:
+- OS and .NET version
 - Steps to reproduce
 - Expected vs actual behavior
 - Logs/stack traces
-- Code samples (nếu có)
+- Code samples (if applicable)
 
 ### ✨ Feature Requests  
-Khi đề xuất tính năng:
-- Mô tả chi tiết use case
-- Tại sao tính năng này cần thiết
-- Đề xuất implementation approach
-- Có thể impact gì đến existing code
+When proposing features:
+- Detailed use case description
+- Why this feature is needed
+- Suggested implementation approach
+- Potential impact on existing code
 
 ### 🔧 Code Contributions
 
 #### Branch Strategy
 ```bash
-# Tạo feature branch từ main
+# Create feature branch from main
 git checkout main
 git pull origin main
 git checkout -b feature/task-priority-system
 
-# Hoặc bugfix branch
+# Or bugfix branch
 git checkout -b bugfix/client-reconnection-issue
 ```
 
 #### Commit Messages
-Sử dụng conventional commits:
+Use conventional commits:
 ```bash
 # Features
 git commit -m "feat: add task priority system"
@@ -157,12 +157,12 @@ git commit -m "refactor: extract task validation logic"
 ### Manual Testing Scenarios
 1. **Single Client**: Server + 1 Client
 2. **Multi Client**: Server + 3+ Clients
-3. **Client Disconnection**: Ngắt kết nối đột ngột
+3. **Client Disconnection**: Abrupt disconnection
 4. **Server Restart**: Client handle server restart
 5. **Network Issues**: Simulate network problems
 
 ### Performance Testing
-- Monitor memory usage với nhiều clients
+- Monitor memory usage with multiple clients
 - Check CPU utilization
 - Network bandwidth usage
 - Task throughput metrics
@@ -192,17 +192,17 @@ DistributedTaskManager/
 
 ## 🎨 Feature Ideas
 
-Nếu bạn muốn contribute nhưng chưa biết làm gì:
+If you want to contribute but don't know what to do:
 
 ### 🥇 Easy (Good First Issues)
-- Thêm logging framework (NLog/Serilog)
+- Add logging framework (NLog/Serilog)
 - Implement configuration file support
 - Add more task types
 - Improve error messages
 - Add input validation
 
 ### 🥈 Medium
-- Web dashboard cho monitoring
+- Web dashboard for monitoring
 - Database integration
 - Client health checks
 - Task priority system
@@ -226,7 +226,7 @@ Nếu bạn muốn contribute nhưng chưa biết làm gì:
 1. Automated checks (build, style)
 2. Manual review by maintainers
 3. Testing feedback
-4. Approval và merge
+4. Approval and merge
 
 ## 📚 Resources
 
@@ -244,9 +244,9 @@ Nếu bạn muốn contribute nhưng chưa biết làm gì:
 
 ## 🏆 Recognition
 
-Contributors sẽ được ghi nhận trong:
+Contributors will be acknowledged in:
 - README.md contributors section
-- CHANGELOG.md cho từng release
+- CHANGELOG.md for each release
 - GitHub contributors page
 
-Cảm ơn bạn đã quan tâm đến dự án! 🙏
+Thank you for your interest in the project! 🙏
