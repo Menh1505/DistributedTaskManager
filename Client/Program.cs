@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Shared;
 
@@ -11,6 +12,9 @@ namespace Client
 {
     class Program
     {
+        private static string _clientId = Guid.NewGuid().ToString();
+        private static CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+        
         static async Task Main(string[] args)
         {
             string serverIp = "127.0.0.1";
@@ -27,7 +31,10 @@ namespace Client
                     await client.ConnectAsync(serverIp, port);
                     Console.WriteLine("=> Connected successfully. Ready to work!");
 
-                    // 2. Run processing loop (until connection drops)
+                    // 2. Start heartbeat sender in background
+                    var heartbeatTask = SendHeartbeatAsync(client, _cancellationTokenSource.Token);
+                    
+                    // 3. Run processing loop (until connection drops)
                     await ProcessServerTasksAsync(client);
                 }
                 catch (SocketException)
@@ -40,7 +47,9 @@ namespace Client
                 }
                 finally
                 {
+                    _cancellationTokenSource.Cancel(); // Stop heartbeat
                     client.Close();
+                    _cancellationTokenSource = new CancellationTokenSource(); // Reset for next connection
                     await Task.Delay(5000); // Wait 5s before retrying connection
                 }
             }
@@ -62,21 +71,101 @@ namespace Client
                     break;
                 }
 
-                string jsonTask = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                TaskMessage? task = JsonSerializer.Deserialize<TaskMessage>(jsonTask);
-
-                if (task == null) continue;
+                string jsonMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 
-                Console.WriteLine($"[Task Received] Task {task.TaskId}: {task.Type} with data '{task.Data}'");
+                // Process incoming message
+                await ProcessIncomingMessage(jsonMessage, stream);
+            }
+        }
 
-                // 2. Execute task
-                ResultMessage result = ExecuteTask(task);
+        // Process incoming messages from server
+        static async Task ProcessIncomingMessage(string jsonMessage, NetworkStream stream)
+        {
+            try
+            {
+                // Try to parse as BaseMessage to get the type
+                var baseMessage = JsonSerializer.Deserialize<BaseMessage>(jsonMessage);
+                
+                if (baseMessage == null) return;
 
-                // 3. Send result back to Server
-                string jsonResult = JsonSerializer.Serialize(result);
-                byte[] data = Encoding.UTF8.GetBytes(jsonResult);
-                await stream.WriteAsync(data, 0, data.Length);
-                Console.WriteLine($"[Result Sent] Completed Task {task.TaskId}.");
+                switch (baseMessage.Type)
+                {
+                    case MessageType.Task:
+                        var taskWrapper = JsonSerializer.Deserialize<TaskWrapper>(jsonMessage);
+                        if (taskWrapper?.Task != null)
+                        {
+                            var task = taskWrapper.Task;
+                            Console.WriteLine($"[Task Received] Task {task.TaskId}: {task.Type} with data '{task.Data}'");
+
+                            // Execute task
+                            ResultMessage result = ExecuteTask(task);
+
+                            // Send result back to Server wrapped in ResultWrapper
+                            var resultWrapper = new ResultWrapper { Result = result };
+                            string jsonResult = JsonSerializer.Serialize(resultWrapper);
+                            byte[] data = Encoding.UTF8.GetBytes(jsonResult);
+                            await stream.WriteAsync(data, 0, data.Length);
+                            Console.WriteLine($"[Result Sent] Completed Task {task.TaskId}.");
+                        }
+                        break;
+
+                    case MessageType.PingResponse:
+                        var pongMessage = JsonSerializer.Deserialize<PongMessage>(jsonMessage);
+                        if (pongMessage != null)
+                        {
+                            Console.WriteLine($"[Heartbeat] Received pong from server at {pongMessage.Timestamp:HH:mm:ss}");
+                        }
+                        break;
+
+                    default:
+                        // Try legacy format (direct TaskMessage for backward compatibility)
+                        var legacyTask = JsonSerializer.Deserialize<TaskMessage>(jsonMessage);
+                        if (legacyTask != null && !string.IsNullOrEmpty(legacyTask.TaskId))
+                        {
+                            Console.WriteLine($"[Task Received] Legacy Task {legacyTask.TaskId}: {legacyTask.Type} with data '{legacyTask.Data}'");
+
+                            ResultMessage result = ExecuteTask(legacyTask);
+                            string jsonResult = JsonSerializer.Serialize(result);
+                            byte[] data = Encoding.UTF8.GetBytes(jsonResult);
+                            await stream.WriteAsync(data, 0, data.Length);
+                            Console.WriteLine($"[Result Sent] Completed Task {legacyTask.TaskId}.");
+                        }
+                        break;
+                }
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"[Error] Failed to parse message from server: {ex.Message}");
+            }
+        }
+
+        // Send heartbeat ping to server every 10 seconds
+        static async Task SendHeartbeatAsync(TcpClient client, CancellationToken cancellationToken)
+        {
+            var stream = client.GetStream();
+            
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested && client.Connected)
+                {
+                    var pingMessage = new PingMessage { ClientId = _clientId };
+                    string jsonPing = JsonSerializer.Serialize(pingMessage);
+                    byte[] data = Encoding.UTF8.GetBytes(jsonPing);
+                    
+                    await stream.WriteAsync(data, 0, data.Length, cancellationToken);
+                    Console.WriteLine($"[Heartbeat] Sent ping to server");
+                    
+                    // Wait 10 seconds before next heartbeat
+                    await Task.Delay(10000, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("[Heartbeat] Heartbeat cancelled");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[Heartbeat Error] {e.Message}");
             }
         }
 

@@ -61,16 +61,27 @@ Open additional terminals and run the above command to have multiple clients sim
 - ✅ Multi-client support
 - ✅ Real-time client status tracking
 - ✅ Graceful client disconnect handling
+- ✅ **Heartbeat monitoring system** ❤️
+- ✅ Dead client detection and cleanup
+- ✅ Message-based communication protocol
 
 ### Client Features
 - ✅ TCP connection to server
 - ✅ Task processing (Prime checking, Text hashing)
 - ✅ Result reporting
 - ✅ Auto-reconnection support
+- ✅ **Automatic heartbeat ping** ❤️
+- ✅ Message protocol compatibility
 
 ### Task Types
 1. **CheckPrime**: Prime number checking
 2. **HashText**: Generate SHA256 hash for text strings
+
+### Message Types
+1. **Task**: Task assignment from server to client
+2. **Result**: Task result from client to server  
+3. **PingRequest**: Heartbeat ping from client ❤️
+4. **PingResponse**: Heartbeat pong from server ❤️
 
 ## 🔧 Configuration
 
@@ -84,6 +95,11 @@ Open additional terminals and run the above command to have multiple clients sim
 - **Dispatcher check interval**: 100ms
 - **Buffer size**: 4096 bytes
 
+### Heartbeat Settings ❤️
+- **Client ping interval**: 10 seconds
+- **Server heartbeat timeout**: 30 seconds
+- **Heartbeat monitor check**: 5 seconds
+
 ## 📈 Performance
 
 The system is designed to:
@@ -91,6 +107,39 @@ The system is designed to:
 - Distribute tasks efficiently
 - Scale according to CPU core count
 - Maintain minimal memory footprint
+- **Detect and handle dead clients automatically** ❤️
+
+## ❤️ Heartbeat Mechanism
+
+### Problem Solved
+Previously, the server only detected client disconnection when `ReadAsync` or `WriteAsync` failed. If a client process froze (still alive but unresponsive) or network connection dropped without proper TCP closure, the server would continue treating the client as "Idle" and assign tasks to a "dead" client.
+
+### Solution Implementation
+
+**Client Side:**
+- Every 10 seconds, client sends a `PingRequest` message
+- Continues sending heartbeats until connection is lost
+- Each heartbeat includes client ID and timestamp
+
+**Server Side:**
+- When receiving `PingRequest`, server immediately responds with `PingResponse`
+- Server updates `LastHeartbeatTime` for the client
+- Background monitor thread runs every 5 seconds
+- If `DateTime.Now - client.LastHeartbeatTime > 30 seconds`, client is considered dead
+- Dead clients are automatically removed and connections closed
+
+### Message Flow
+```
+Client                          Server
+  |                               |
+  |----> PingRequest ------------>|
+  |                               | (Update LastHeartbeatTime)
+  |<---- PingResponse <-----------|
+  |                               |
+  |                               | (Background Monitor)
+  |                               | (Check: Now - LastHeartbeatTime > 30s?)
+  |                               | (If yes: Remove client)
+```
 
 ## 🧪 Testing
 

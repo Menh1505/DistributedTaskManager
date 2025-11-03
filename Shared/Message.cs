@@ -15,6 +15,15 @@ namespace Shared
         HashText
     }
 
+    // Enum for message types (including heartbeat)
+    public enum MessageType
+    {
+        Task,
+        Result,
+        PingRequest,
+        PingResponse
+    }
+
     // Class sent from Server to Client
     public class TaskMessage
     {
@@ -29,5 +38,56 @@ namespace Shared
         public string TaskId { get; set; } = string.Empty;
         public bool Success { get; set; }
         public string ResultData { get; set; } = string.Empty; // Result or error message
+    }
+
+    // Base message class for all communication
+    public class BaseMessage
+    {
+        public MessageType Type { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+    }
+
+    // Heartbeat ping request message
+    public class PingMessage : BaseMessage
+    {
+        public string ClientId { get; set; } = string.Empty;
+        
+        public PingMessage()
+        {
+            Type = MessageType.PingRequest;
+        }
+    }
+
+    // Heartbeat ping response message
+    public class PongMessage : BaseMessage
+    {
+        public string ServerId { get; set; } = "Server";
+        
+        public PongMessage()
+        {
+            Type = MessageType.PingResponse;
+        }
+    }
+
+    // Wrapper for task messages
+    public class TaskWrapper : BaseMessage
+    {
+        public TaskMessage Task { get; set; } = new TaskMessage();
+        
+        public TaskWrapper()
+        {
+            Type = MessageType.Task;
+        }
+    }
+
+    // Wrapper for result messages
+    public class ResultWrapper : BaseMessage
+    {
+        public ResultMessage Result { get; set; } = new ResultMessage();
+        
+        public ResultWrapper()
+        {
+            Type = MessageType.Result;
+        }
     }
 }

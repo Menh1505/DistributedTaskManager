@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -21,11 +22,12 @@ namespace Server
 
         static async Task Main(string[] args)
         {
-            // Run 2 background tasks (background threads)
+            // Run 3 background tasks (background threads)
             _ = TaskProducerAsync();      // Task 1: Continuously create new tasks
             _ = TaskDispatcherAsync();    // Task 2: Continuously dispatch tasks
+            _ = HeartbeatMonitorAsync();  // Task 3: Monitor client heartbeats
 
-            // Task 3 (Main): Listen for client connections
+            // Task 4 (Main): Listen for client connections
             await StartServerListenerAsync(); 
         }
 
@@ -103,6 +105,51 @@ namespace Server
                 Log($"[Producer] Added Task {task.TaskId} to queue. ({_taskQueue.Count} tasks)");
                 
                 await Task.Delay(2000); // Create new task every 2 seconds
+            }
+        }
+
+        // Background loop 3: Heartbeat monitor
+        static async Task HeartbeatMonitorAsync()
+        {
+            Log("[HeartbeatMonitor] Starting client heartbeat monitoring...");
+            var heartbeatTimeout = TimeSpan.FromSeconds(30); // 30 seconds timeout
+            
+            while (true)
+            {
+                var deadClients = new List<string>();
+                
+                // Check all clients for heartbeat timeout
+                foreach (var kvp in _clientHandlers)
+                {
+                    var clientId = kvp.Key;
+                    var clientHandler = kvp.Value;
+                    
+                    if (!clientHandler.IsAlive(heartbeatTimeout))
+                    {
+                        deadClients.Add(clientId);
+                        Log($"[HeartbeatMonitor] Client {clientId} heartbeat timeout. Marking for removal.");
+                    }
+                }
+                
+                // Remove dead clients
+                foreach (var deadClientId in deadClients)
+                {
+                    if (_clientHandlers.TryRemove(deadClientId, out var deadClient))
+                    {
+                        try
+                        {
+                            deadClient?.Dispose(); // Assuming we'll add IDisposable
+                            Log($"[HeartbeatMonitor] Removed dead client {deadClientId}. Total clients: {_clientHandlers.Count}");
+                        }
+                        catch (Exception e)
+                        {
+                            Log($"[HeartbeatMonitor] Error disposing client {deadClientId}: {e.Message}");
+                        }
+                    }
+                }
+                
+                // Check every 5 seconds
+                await Task.Delay(5000);
             }
         }
 
