@@ -7,6 +7,8 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Shared;
+using Server.Persistence;
+using TaskStatus = Server.Persistence.PersistenceTaskStatus;
 
 namespace Server
 {
@@ -21,18 +23,28 @@ namespace Server
         // 3. Dead-letter queue for failed tasks (thread-safe)
         private static ConcurrentQueue<TaskMessage> _deadLetterQueue = new ConcurrentQueue<TaskMessage>();
 
+        // 4. Persistence layer for durable storage
+        private static ITaskPersistence _taskPersistence = null!;
+
         private static int _taskCounter = 0; // For generating task IDs
         private const int MAX_RETRY_COUNT = 3; // Maximum retry attempts
 
         static async Task Main(string[] args)
         {
-            // Run 4 background tasks (background threads)
+            // Initialize persistence layer
+            await InitializePersistenceAsync(args);
+
+            // Restore queues from persistent storage
+            await RestoreQueuesAsync();
+
+            // Run 5 background tasks (background threads)
             _ = TaskProducerAsync();      // Task 1: Continuously create new tasks
             _ = TaskDispatcherAsync();    // Task 2: Continuously dispatch tasks
             _ = HeartbeatMonitorAsync();  // Task 3: Monitor client heartbeats
             _ = DeadLetterMonitorAsync(); // Task 4: Monitor dead-letter queue
+            _ = PersistenceCleanupAsync(); // Task 5: Cleanup old completed tasks
 
-            // Task 5 (Main): Listen for client connections
+            // Task 6 (Main): Listen for client connections
             await StartServerListenerAsync(); 
         }
 
@@ -50,7 +62,7 @@ namespace Server
                     TcpClient client = await server.AcceptTcpClientAsync();
                     
                     // Create a new handler for the client
-                    var clientHandler = new ClientHandler(client, _clientHandlers, _taskQueue, _deadLetterQueue, MAX_RETRY_COUNT, Log);
+                    var clientHandler = new ClientHandler(client, _clientHandlers, _taskQueue, _deadLetterQueue, _taskPersistence, MAX_RETRY_COUNT, Log);
                     _clientHandlers.TryAdd(clientHandler.Id, clientHandler);
 
                     Log($"Client {clientHandler.Id} connected. Total clients: {_clientHandlers.Count}");
@@ -107,6 +119,10 @@ namespace Server
                 };
 
                 _taskQueue.Enqueue(task);
+                
+                // Persist task to storage
+                await _taskPersistence.SaveTaskAsync(task, TaskStatus.Pending);
+                
                 Log($"[Producer] Added Task {task.TaskId} to queue. ({_taskQueue.Count} tasks)");
                 
                 await Task.Delay(2000); // Create new task every 2 seconds
@@ -252,6 +268,93 @@ namespace Server
             Log($"[Statistics] Dead-letter queue size: {_deadLetterQueue.Count}");
             Log($"[Statistics] Main task queue size: {_taskQueue.Count}");
             Log($"[Statistics] Active clients: {_clientHandlers.Count}");
+        }
+
+        // Initialize persistence layer based on command line arguments
+        static async Task InitializePersistenceAsync(string[] args)
+        {
+            var useFileStorage = args.Contains("--file-storage");
+            
+            if (useFileStorage)
+            {
+                Log("[Persistence] Using file-based persistence");
+                _taskPersistence = new FileTaskPersistence();
+            }
+            else
+            {
+                Log("[Persistence] Using LiteDB persistence");
+                _taskPersistence = new LiteDbTaskPersistence();
+            }
+
+            await _taskPersistence.InitializeAsync();
+        }
+
+        // Restore queues from persistent storage on startup
+        static async Task RestoreQueuesAsync()
+        {
+            Log("[Persistence] Restoring queues from persistent storage...");
+            
+            // Restore pending tasks
+            var pendingTasks = await _taskPersistence.LoadPendingTasksAsync();
+            foreach (var task in pendingTasks)
+            {
+                _taskQueue.Enqueue(task);
+            }
+            
+            // Restore dead-letter tasks
+            var deadLetterTasks = await _taskPersistence.LoadDeadLetterTasksAsync();
+            foreach (var task in deadLetterTasks)
+            {
+                _deadLetterQueue.Enqueue(task);
+            }
+
+            Log($"[Persistence] Restored {pendingTasks.Count} pending tasks and {deadLetterTasks.Count} dead-letter tasks");
+            
+            // Update task counter based on existing tasks
+            if (pendingTasks.Any() || deadLetterTasks.Any())
+            {
+                var allTasks = pendingTasks.Concat(deadLetterTasks);
+                var maxTaskNumber = allTasks
+                    .Where(t => t.TaskId.StartsWith("Task-"))
+                    .Select(t => 
+                    {
+                        var parts = t.TaskId.Split('-');
+                        return parts.Length > 1 && int.TryParse(parts[1], out int num) ? num : 0;
+                    })
+                    .DefaultIfEmpty(0)
+                    .Max();
+                
+                _taskCounter = maxTaskNumber + 1;
+                Log($"[Persistence] Reset task counter to {_taskCounter}");
+            }
+        }
+
+        // Background loop 5: Cleanup old tasks periodically
+        static async Task PersistenceCleanupAsync()
+        {
+            Log("[PersistenceCleanup] Starting periodic cleanup of old tasks...");
+            
+            while (true)
+            {
+                try
+                {
+                    // Cleanup tasks older than 7 days
+                    var cutoffDate = DateTime.Now.AddDays(-7);
+                    await _taskPersistence.CleanupOldTasksAsync(cutoffDate);
+                    
+                    // Log persistence statistics
+                    var stats = await _taskPersistence.GetStatisticsAsync();
+                    Log($"[PersistenceStats] Total: {stats.TotalTasks}, Pending: {stats.PendingTasks}, " +
+                        $"Completed: {stats.CompletedTasks}, Dead-Letter: {stats.DeadLetterTasks}");
+                }
+                catch (Exception e)
+                {
+                    Log($"[PersistenceCleanup] Error during cleanup: {e.Message}");
+                }
+                
+                // Run cleanup every hour
+                await Task.Delay(TimeSpan.FromHours(1));
+            }
         }
 
         // Helper log (to distinguish output)

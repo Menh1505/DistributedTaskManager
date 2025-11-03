@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Shared;
+using Server.Persistence;
+using TaskStatus = Server.Persistence.PersistenceTaskStatus;
 
 namespace Server
 {
@@ -21,13 +23,14 @@ namespace Server
         private ConcurrentDictionary<string, ClientHandler> _clientHandlers;
         private ConcurrentQueue<TaskMessage> _taskQueue;
         private ConcurrentQueue<TaskMessage> _deadLetterQueue;
+        private ITaskPersistence _taskPersistence;
         private TaskMessage? _currentTask; // Currently assigned task
         private int _maxRetryCount;
         private Action<string> _log; // Helper function for logging
         
         public ClientHandler(TcpClient client, ConcurrentDictionary<string, ClientHandler> clientHandlers, 
             ConcurrentQueue<TaskMessage> taskQueue, ConcurrentQueue<TaskMessage> deadLetterQueue, 
-            int maxRetryCount, Action<string> log)
+            ITaskPersistence taskPersistence, int maxRetryCount, Action<string> log)
         {
             Id = Guid.NewGuid().ToString();
             Status = ClientStatus.Idle; // New client, idle
@@ -37,6 +40,7 @@ namespace Server
             _clientHandlers = clientHandlers;
             _taskQueue = taskQueue;
             _deadLetterQueue = deadLetterQueue;
+            _taskPersistence = taskPersistence;
             _maxRetryCount = maxRetryCount;
             _currentTask = null;
             _log = log;
@@ -85,11 +89,13 @@ namespace Server
                     if (_currentTask.RetryCount < _maxRetryCount)
                     {
                         _taskQueue.Enqueue(_currentTask); // Return to main queue for retry
+                        await _taskPersistence.SaveTaskAsync(_currentTask, TaskStatus.Pending);
                         _log($"[RE-QUEUE] Task {_currentTask.TaskId} requeued for retry #{_currentTask.RetryCount}");
                     }
                     else
                     {
                         _deadLetterQueue.Enqueue(_currentTask); // Move to dead-letter queue
+                        await _taskPersistence.SaveTaskAsync(_currentTask, TaskStatus.DeadLetter);
                         _log($"[DEAD-LETTER] Task {_currentTask.TaskId} exceeded max retries ({_maxRetryCount}). Moved to dead-letter queue.");
                         
                         // Log to file for audit trail
@@ -125,6 +131,13 @@ namespace Server
                         {
                             _log($"[Result] Task {resultWrapper.Result.TaskId} from Client {Id}: {resultWrapper.Result.ResultData}");
                             
+                            // Task completed - update persistence
+                            if (_currentTask != null)
+                            {
+                                var status = resultWrapper.Result.Success ? TaskStatus.Completed : TaskStatus.Failed;
+                                await _taskPersistence.SaveTaskAsync(_currentTask, status);
+                            }
+                            
                             // Task completed successfully - clear current task
                             _currentTask = null;
                             
@@ -152,6 +165,13 @@ namespace Server
                         if (legacyResult != null && !string.IsNullOrEmpty(legacyResult.TaskId))
                         {
                             _log($"[Result] Task {legacyResult.TaskId} from Client {Id}: {legacyResult.ResultData}");
+                            
+                            // Task completed - update persistence
+                            if (_currentTask != null)
+                            {
+                                var status = legacyResult.Success ? TaskStatus.Completed : TaskStatus.Failed;
+                                await _taskPersistence.SaveTaskAsync(_currentTask, status);
+                            }
                             
                             // Task completed successfully - clear current task
                             _currentTask = null;
@@ -200,6 +220,9 @@ namespace Server
                 Status = ClientStatus.Busy; // Mark as busy
                 _currentTask = task; // Store current task for retry handling
                 
+                // Update task status in persistence
+                await _taskPersistence.SaveTaskAsync(task, TaskStatus.InProgress);
+                
                 // Wrap task in TaskWrapper
                 var taskWrapper = new TaskWrapper { Task = task };
                 string jsonTask = JsonSerializer.Serialize(taskWrapper);
@@ -224,11 +247,13 @@ namespace Server
                     if (_currentTask.RetryCount < _maxRetryCount)
                     {
                         _taskQueue.Enqueue(_currentTask);
+                        await _taskPersistence.SaveTaskAsync(_currentTask, TaskStatus.Pending);
                         _log($"[RE-QUEUE] Task {_currentTask.TaskId} requeued due to send failure. Retry #{_currentTask.RetryCount}");
                     }
                     else
                     {
                         _deadLetterQueue.Enqueue(_currentTask);
+                        await _taskPersistence.SaveTaskAsync(_currentTask, TaskStatus.DeadLetter);
                         _log($"[DEAD-LETTER] Task {_currentTask.TaskId} moved to dead-letter queue after send failure.");
                         await LogDeadLetterTaskAsync(_currentTask);
                     }
