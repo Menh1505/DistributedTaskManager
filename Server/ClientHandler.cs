@@ -17,6 +17,9 @@ namespace Server
         public string Id { get; }
         public ClientStatus Status { get; private set; }
         public DateTime LastHeartbeatTime { get; private set; }
+        public List<TaskType> Capabilities { get; private set; } = new List<TaskType>();
+        public bool IsRegistered { get; private set; } = false;
+        public string ClientName { get; private set; } = string.Empty;
         
         private TcpClient _client;
         private NetworkStream _stream;
@@ -159,6 +162,14 @@ namespace Server
                         }
                         break;
 
+                    case MessageType.Register:
+                        var registerMessage = JsonSerializer.Deserialize<RegisterMessage>(jsonMessage);
+                        if (registerMessage != null)
+                        {
+                            await HandleClientRegistration(registerMessage);
+                        }
+                        break;
+
                     default:
                         // Try legacy format (direct ResultMessage for backward compatibility)
                         var legacyResult = JsonSerializer.Deserialize<ResultMessage>(jsonMessage);
@@ -204,6 +215,71 @@ namespace Server
                 _log($"[Error] Failed to send ping response to Client {Id}: {e.Message}");
                 return false;
             }
+        }
+
+        // Handle client registration with capabilities
+        private async Task HandleClientRegistration(RegisterMessage registerMessage)
+        {
+            try
+            {
+                // Validate capabilities
+                var validCapabilities = registerMessage.Capabilities
+                    .Where(cap => Enum.IsDefined(typeof(TaskType), cap))
+                    .ToList();
+
+                if (validCapabilities.Count == 0)
+                {
+                    // Default to all capabilities if none specified or all invalid
+                    validCapabilities = Enum.GetValues<TaskType>().ToList();
+                }
+
+                // Update client info
+                Capabilities = validCapabilities;
+                IsRegistered = true;
+                ClientName = string.IsNullOrEmpty(registerMessage.ClientName) ? $"Client-{Id[..8]}" : registerMessage.ClientName;
+
+                // Send registration response
+                var response = new RegisterResponseMessage
+                {
+                    Success = true,
+                    Message = $"Registration successful. Accepted capabilities: {string.Join(", ", validCapabilities)}",
+                    AcceptedCapabilities = validCapabilities
+                };
+
+                string jsonResponse = JsonSerializer.Serialize(response);
+                byte[] data = Encoding.UTF8.GetBytes(jsonResponse);
+                await _stream.WriteAsync(data, 0, data.Length);
+
+                _log($"[Registration] Client {Id} ({ClientName}) registered with capabilities: {string.Join(", ", validCapabilities)}");
+            }
+            catch (Exception e)
+            {
+                _log($"[Registration Error] Failed to process registration for Client {Id}: {e.Message}");
+                
+                // Send error response
+                var errorResponse = new RegisterResponseMessage
+                {
+                    Success = false,
+                    Message = $"Registration failed: {e.Message}"
+                };
+
+                try
+                {
+                    string jsonResponse = JsonSerializer.Serialize(errorResponse);
+                    byte[] data = Encoding.UTF8.GetBytes(jsonResponse);
+                    await _stream.WriteAsync(data, 0, data.Length);
+                }
+                catch
+                {
+                    // Ignore errors when sending error response
+                }
+            }
+        }
+
+        // Check if client can handle specific task type
+        public bool CanHandleTask(TaskType taskType)
+        {
+            return IsRegistered && Capabilities.Contains(taskType);
         }
 
         // Check if client is alive based on heartbeat
@@ -295,6 +371,15 @@ namespace Server
                 return "No active task";
             
             return $"TaskId: {_currentTask.TaskId}, Type: {_currentTask.Type}, RetryCount: {_currentTask.RetryCount}";
+        }
+
+        // Get client capabilities info
+        public string GetCapabilitiesInfo()
+        {
+            if (!IsRegistered)
+                return "Not registered";
+            
+            return $"Name: {ClientName}, Capabilities: [{string.Join(", ", Capabilities)}]";
         }
 
         // IDisposable implementation

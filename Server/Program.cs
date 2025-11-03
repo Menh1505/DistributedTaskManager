@@ -77,23 +77,47 @@ namespace Server
             }
         }
 
-        // Background loop 1: Task dispatcher
+        // Background loop 1: Task dispatcher (with capability-based routing)
         static async Task TaskDispatcherAsync()
         {
-            Log("[Dispatcher] Starting task dispatching...");
+            Log("[Dispatcher] Starting intelligent task dispatching...");
             while (true)
             {
                 if (!_taskQueue.IsEmpty)
                 {
-                    // Find the first idle client
-                    var idleClient = _clientHandlers.Values.FirstOrDefault(c => c.Status == ClientStatus.Idle);
-
-                    if (idleClient != null)
+                    // Peek at the next task to check its type
+                    if (_taskQueue.TryPeek(out TaskMessage? nextTask))
                     {
-                        // There's an idle client & available task
-                        if (_taskQueue.TryDequeue(out TaskMessage? task))
+                        // Find an idle client that can handle this task type
+                        var capableClient = _clientHandlers.Values.FirstOrDefault(c => 
+                            c.Status == ClientStatus.Idle && 
+                            c.IsRegistered && 
+                            c.CanHandleTask(nextTask.Type));
+
+                        if (capableClient != null)
                         {
-                            await idleClient.SendTaskAsync(task);
+                            // Dequeue the task and assign it
+                            if (_taskQueue.TryDequeue(out TaskMessage? task))
+                            {
+                                await capableClient.SendTaskAsync(task);
+                                Log($"[Dispatcher] Assigned {task.Type} task {task.TaskId} to capable client {capableClient.ClientName}");
+                            }
+                        }
+                        else
+                        {
+                            // No capable client available, check if any client can handle this task type
+                            var hasCapableClients = _clientHandlers.Values.Any(c => 
+                                c.IsRegistered && c.CanHandleTask(nextTask.Type));
+
+                            if (!hasCapableClients)
+                            {
+                                // No client can handle this task type, move to dead-letter queue
+                                if (_taskQueue.TryDequeue(out TaskMessage? unhandleableTask))
+                                {
+                                    _deadLetterQueue.Enqueue(unhandleableTask);
+                                    Log($"[Dispatcher] No capable clients for {unhandleableTask.Type} task {unhandleableTask.TaskId}. Moved to dead-letter queue.");
+                                }
+                            }
                         }
                     }
                 }
@@ -206,19 +230,39 @@ namespace Server
         static void LogStatistics()
         {
             var activeClients = _clientHandlers.Count;
+            var registeredClients = _clientHandlers.Values.Count(c => c.IsRegistered);
             var idleClients = _clientHandlers.Values.Count(c => c.Status == ClientStatus.Idle);
             var busyClients = _clientHandlers.Values.Count(c => c.Status == ClientStatus.Busy);
             var pendingTasks = _taskQueue.Count;
             var deadLetterTasks = _deadLetterQueue.Count;
             
-            Log($"[Statistics] Active Clients: {activeClients} (Idle: {idleClients}, Busy: {busyClients})");
+            Log($"[Statistics] Active Clients: {activeClients} (Registered: {registeredClients}, Idle: {idleClients}, Busy: {busyClients})");
             Log($"[Statistics] Pending Tasks: {pendingTasks}, Dead-Letter: {deadLetterTasks}");
             
-            // Log current tasks for busy clients
-            foreach (var client in _clientHandlers.Values.Where(c => c.Status == ClientStatus.Busy))
+            // Log client capabilities
+            foreach (var client in _clientHandlers.Values.Where(c => c.IsRegistered))
             {
-                Log($"[Statistics] Client {client.Id}: {client.GetCurrentTaskInfo()}");
+                var statusInfo = client.Status == ClientStatus.Busy ? client.GetCurrentTaskInfo() : "Idle";
+                Log($"[Statistics] {client.GetCapabilitiesInfo()} - Status: {statusInfo}");
             }
+
+            // Log unregistered clients
+            var unregisteredClients = _clientHandlers.Values.Where(c => !c.IsRegistered).ToList();
+            if (unregisteredClients.Any())
+            {
+                Log($"[Statistics] Unregistered clients: {unregisteredClients.Count}");
+            }
+
+            // Log capability distribution
+            var capabilityStats = new Dictionary<TaskType, int>();
+            foreach (var taskType in Enum.GetValues<TaskType>())
+            {
+                var clientCount = _clientHandlers.Values.Count(c => c.IsRegistered && c.CanHandleTask(taskType));
+                capabilityStats[taskType] = clientCount;
+            }
+            
+            var capabilityInfo = string.Join(", ", capabilityStats.Select(kvp => $"{kvp.Key}: {kvp.Value}"));
+            Log($"[Statistics] Capability distribution: {capabilityInfo}");
         }
 
         // Reprocess all dead-letter tasks (admin function)

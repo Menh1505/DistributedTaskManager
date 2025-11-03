@@ -36,8 +36,9 @@ namespace Server.Persistence
             try
             {
                 // Database is already initialized in constructor
-                var stats = await GetStatisticsAsync();
-                Console.WriteLine($"[Persistence] Database initialized. Total tasks: {stats.TotalTasks}");
+                // Get statistics directly without calling GetStatisticsAsync to avoid deadlock
+                var totalTasks = _tasksCollection.Count();
+                Console.WriteLine($"[Persistence] Database initialized. Total tasks: {totalTasks}");
             }
             finally
             {

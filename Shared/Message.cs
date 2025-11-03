@@ -21,7 +21,9 @@ namespace Shared
         Task,
         Result,
         PingRequest,
-        PingResponse
+        PingResponse,
+        Register,
+        RegisterResponse
     }
 
     // Class sent from Server to Client
@@ -91,6 +93,34 @@ namespace Shared
         public ResultWrapper()
         {
             Type = MessageType.Result;
+        }
+    }
+
+    // Client registration message
+    public class RegisterMessage : BaseMessage
+    {
+        public string ClientId { get; set; } = string.Empty;
+        public List<TaskType> Capabilities { get; set; } = new List<TaskType>();
+        public string ClientName { get; set; } = string.Empty;
+        public string Version { get; set; } = "1.0.0";
+        
+        public RegisterMessage()
+        {
+            Type = MessageType.Register;
+        }
+    }
+
+    // Server registration response
+    public class RegisterResponseMessage : BaseMessage
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string ServerId { get; set; } = "Server";
+        public List<TaskType> AcceptedCapabilities { get; set; } = new List<TaskType>();
+        
+        public RegisterResponseMessage()
+        {
+            Type = MessageType.RegisterResponse;
         }
     }
 }

@@ -14,11 +14,16 @@ namespace Client
     {
         private static string _clientId = Guid.NewGuid().ToString();
         private static CancellationTokenSource _cancellationTokenSource = new CancellationTokenSource();
+        private static List<TaskType> _clientCapabilities = new List<TaskType>();
+        private static string _clientName = $"WorkerClient-{Environment.MachineName}";
         
         static async Task Main(string[] args)
         {
             string serverIp = "127.0.0.1";
             int port = 12345;
+
+            // Initialize client capabilities (can be configured via args or config)
+            InitializeCapabilities(args);
             
             // Infinite loop, auto reconnect
             while (true) 
@@ -31,10 +36,13 @@ namespace Client
                     await client.ConnectAsync(serverIp, port);
                     Console.WriteLine("=> Connected successfully. Ready to work!");
 
-                    // 2. Start heartbeat sender in background
+                    // 2. Register client capabilities with server
+                    await RegisterWithServer(client);
+                    
+                    // 3. Start heartbeat sender in background
                     var heartbeatTask = SendHeartbeatAsync(client, _cancellationTokenSource.Token);
                     
-                    // 3. Run processing loop (until connection drops)
+                    // 4. Run processing loop (until connection drops)
                     await ProcessServerTasksAsync(client);
                 }
                 catch (SocketException)
@@ -117,6 +125,22 @@ namespace Client
                         }
                         break;
 
+                    case MessageType.RegisterResponse:
+                        var registerResponse = JsonSerializer.Deserialize<RegisterResponseMessage>(jsonMessage);
+                        if (registerResponse != null)
+                        {
+                            if (registerResponse.Success)
+                            {
+                                Console.WriteLine($"[Registration] Successfully registered with server");
+                                Console.WriteLine($"[Registration] Accepted capabilities: {string.Join(", ", registerResponse.AcceptedCapabilities)}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"[Registration] Registration failed: {registerResponse.Message}");
+                            }
+                        }
+                        break;
+
                     default:
                         // Try legacy format (direct TaskMessage for backward compatibility)
                         var legacyTask = JsonSerializer.Deserialize<TaskMessage>(jsonMessage);
@@ -136,6 +160,66 @@ namespace Client
             catch (JsonException ex)
             {
                 Console.WriteLine($"[Error] Failed to parse message from server: {ex.Message}");
+            }
+        }
+
+        // Initialize client capabilities from command line arguments or default
+        static void InitializeCapabilities(string[] args)
+        {
+            // Default: support all task types
+            _clientCapabilities = Enum.GetValues<TaskType>().ToList();
+
+            // Parse command line arguments for specific capabilities
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--capabilities" && i + 1 < args.Length)
+                {
+                    var capabilityNames = args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries);
+                    _clientCapabilities.Clear();
+
+                    foreach (var capName in capabilityNames)
+                    {
+                        if (Enum.TryParse<TaskType>(capName.Trim(), true, out var taskType))
+                        {
+                            _clientCapabilities.Add(taskType);
+                        }
+                    }
+                    break;
+                }
+                else if (args[i] == "--name" && i + 1 < args.Length)
+                {
+                    _clientName = args[i + 1];
+                }
+            }
+
+            Console.WriteLine($"[Init] Client Name: {_clientName}");
+            Console.WriteLine($"[Init] Client Capabilities: {string.Join(", ", _clientCapabilities)}");
+        }
+
+        // Register client with server
+        static async Task RegisterWithServer(TcpClient client)
+        {
+            try
+            {
+                var registerMessage = new RegisterMessage
+                {
+                    ClientId = _clientId,
+                    ClientName = _clientName,
+                    Capabilities = _clientCapabilities,
+                    Version = "2.0.0"
+                };
+
+                string jsonRegister = JsonSerializer.Serialize(registerMessage);
+                byte[] data = Encoding.UTF8.GetBytes(jsonRegister);
+
+                var stream = client.GetStream();
+                await stream.WriteAsync(data, 0, data.Length);
+
+                Console.WriteLine($"[Registration] Sent registration to server with capabilities: {string.Join(", ", _clientCapabilities)}");
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[Registration Error] Failed to register with server: {e.Message}");
             }
         }
 
@@ -202,6 +286,12 @@ namespace Client
                 if (task.RetryCount > 0)
                 {
                     result.ResultData += $" (Completed on retry #{task.RetryCount})";
+                }
+
+                // Add capability information to result for monitoring
+                if (_clientCapabilities != null && _clientCapabilities.Count > 0)
+                {
+                    result.ResultData += $" [Capabilities: {string.Join(",", _clientCapabilities)}]";
                 }
             }
             catch (Exception e)
