@@ -17,31 +17,31 @@ namespace Server
         private TcpClient _client;
         private NetworkStream _stream;
         private ConcurrentDictionary<string, ClientHandler> _clientHandlers;
-        private Action<string> _log; // Hàm helper để log
+        private Action<string> _log; // Helper function for logging
         
         public ClientHandler(TcpClient client, ConcurrentDictionary<string, ClientHandler> clientHandlers, Action<string> log)
         {
             Id = Guid.NewGuid().ToString();
-            Status = ClientStatus.Idle; // Mới vào, rảnh
+            Status = ClientStatus.Idle; // New client, idle
             _client = client;
             _stream = client.GetStream();
             _clientHandlers = clientHandlers;
             _log = log;
         }
 
-        // Vòng lặp chính: Chạy liên tục để lắng nghe kết quả từ Client
+        // Main loop: Continuously listen for results from Client
         public async Task StartListeningAsync()
         {
             try
             {
-                byte[] buffer = new byte[4096]; // Tăng buffer lên
+                byte[] buffer = new byte[4096]; // Increased buffer size
                 while (_client.Connected)
                 {
                     int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length);
                     if (bytesRead == 0)
                     {
-                        // Client ngắt kết nối (cleanly)
-                        _log($"Client {Id} đã ngắt kết nối.");
+                        // Client disconnected cleanly
+                        _log($"Client {Id} disconnected.");
                         break; 
                     }
 
@@ -50,51 +50,51 @@ namespace Server
 
                     if (result != null)
                     {
-                        _log($"[Ket qua] Task {result.TaskId} tu Client {Id}: {result.ResultData}");
+                        _log($"[Result] Task {result.TaskId} from Client {Id}: {result.ResultData}");
                         
-                        // QUAN TRỌNG: Đánh dấu Client rảnh trở lại
+                        // IMPORTANT: Mark client as idle again
                         Status = ClientStatus.Idle; 
                     }
                 }
             }
             catch (IOException)
             {
-                _log($"Client {Id} ngat ket noi dot ngot (IO).");
+                _log($"Client {Id} disconnected abruptly (IO).");
             }
             catch (Exception e)
             {
-                _log($"Loi voi Client {Id}: {e.Message}");
+                _log($"Error with Client {Id}: {e.Message}");
             }
             finally
             {
-                // Dọn dẹp
-                Status = ClientStatus.Busy; // Ngăn dispatcher giao thêm task
+                // Cleanup
+                Status = ClientStatus.Busy; // Prevent dispatcher from assigning more tasks
                 _client.Close();
-                _clientHandlers.TryRemove(Id, out _); // Xóa khỏi danh sách quản lý
-                _log($"Da xoa Client {Id}. Tong so clients: {_clientHandlers.Count}");
+                _clientHandlers.TryRemove(Id, out _); // Remove from management list
+                _log($"Removed Client {Id}. Total clients: {_clientHandlers.Count}");
             }
         }
 
-        // Gửi task cho client này
+        // Send task to this client
         public async Task<bool> SendTaskAsync(TaskMessage task)
         {
             try
             {
-                Status = ClientStatus.Busy; // Đánh dấu bận
+                Status = ClientStatus.Busy; // Mark as busy
                 string jsonTask = JsonSerializer.Serialize(task);
                 byte[] data = Encoding.UTF8.GetBytes(jsonTask);
                 
                 await _stream.WriteAsync(data, 0, data.Length);
-                _log($"[Giao viec] Da giao Task {task.TaskId} cho Client {Id}");
+                _log($"[Task Assigned] Assigned Task {task.TaskId} to Client {Id}");
                 return true;
             }
             catch (Exception e)
             {
-                _log($"[LOI GIAO VIEC] Khong the gui task cho Client {Id}: {e.Message}");
-                // Nếu gửi lỗi (ví dụ client vừa rớt mạng), dọn dẹp ngay
+                _log($"[ASSIGNMENT ERROR] Cannot send task to Client {Id}: {e.Message}");
+                // If sending fails (e.g., client just dropped connection), cleanup immediately
                 _client.Close();
                 _clientHandlers.TryRemove(Id, out _);
-                _log($"Da xoa Client {Id} do gui task loi. Tong so clients: {_clientHandlers.Count}");
+                _log($"Removed Client {Id} due to task sending error. Total clients: {_clientHandlers.Count}");
                 return false;
             }
         }

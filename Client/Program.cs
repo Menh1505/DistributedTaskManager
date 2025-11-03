@@ -16,37 +16,37 @@ namespace Client
             string serverIp = "127.0.0.1";
             int port = 12345;
             
-            // Vòng lặp vĩnh viễn, tự động kết nối lại
+            // Infinite loop, auto reconnect
             while (true) 
             {
                 TcpClient client = new TcpClient();
                 try
                 {
-                    // 1. Kết nối
-                    Console.WriteLine($"Dang thu ket noi den Server {serverIp}:{port}...");
+                    // 1. Connect
+                    Console.WriteLine($"Attempting to connect to Server {serverIp}:{port}...");
                     await client.ConnectAsync(serverIp, port);
-                    Console.WriteLine("=> Da ket noi thanh cong. San sang nhan viec!");
+                    Console.WriteLine("=> Connected successfully. Ready to work!");
 
-                    // 2. Chạy vòng lặp xử lý (cho đến khi rớt mạng)
+                    // 2. Run processing loop (until connection drops)
                     await ProcessServerTasksAsync(client);
                 }
                 catch (SocketException)
                 {
-                    Console.WriteLine("Khong the ket noi den Server. Thu lai sau 5 giay...");
+                    Console.WriteLine("Cannot connect to Server. Retrying in 5 seconds...");
                 }
                 catch (Exception e)
                 {
-                    Console.WriteLine($"Loi: {e.Message}. Thu lai sau 5 giay...");
+                    Console.WriteLine($"Error: {e.Message}. Retrying in 5 seconds...");
                 }
                 finally
                 {
                     client.Close();
-                    await Task.Delay(5000); // Chờ 5s trước khi thử kết nối lại
+                    await Task.Delay(5000); // Wait 5s before retrying connection
                 }
             }
         }
 
-        // Vòng lặp chính: Nhận task -> Làm -> Gửi kết quả
+        // Main loop: Receive task -> Process -> Send result
         static async Task ProcessServerTasksAsync(TcpClient client)
         {
             NetworkStream stream = client.GetStream();
@@ -54,11 +54,11 @@ namespace Client
 
             while (client.Connected)
             {
-                // 1. Chờ nhận nhiệm vụ
+                // 1. Wait to receive task
                 int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
                 if (bytesRead == 0)
                 {
-                    Console.WriteLine("Server da ngat ket noi.");
+                    Console.WriteLine("Server disconnected.");
                     break;
                 }
 
@@ -67,27 +67,27 @@ namespace Client
 
                 if (task == null) continue;
                 
-                Console.WriteLine($"[Nhan viec] Task {task.TaskId}: {task.Type} voi data '{task.Data}'");
+                Console.WriteLine($"[Task Received] Task {task.TaskId}: {task.Type} with data '{task.Data}'");
 
-                // 2. Thực thi nhiệm vụ
+                // 2. Execute task
                 ResultMessage result = ExecuteTask(task);
 
-                // 3. Gửi kết quả về Server
+                // 3. Send result back to Server
                 string jsonResult = JsonSerializer.Serialize(result);
                 byte[] data = Encoding.UTF8.GetBytes(jsonResult);
                 await stream.WriteAsync(data, 0, data.Length);
-                Console.WriteLine($"[Gui ket qua] Da hoan thanh Task {task.TaskId}.");
+                Console.WriteLine($"[Result Sent] Completed Task {task.TaskId}.");
             }
         }
 
-        // Hàm thực thi (logic)
+        // Task execution function (logic)
         static ResultMessage ExecuteTask(TaskMessage task)
         {
             var result = new ResultMessage { TaskId = task.TaskId, Success = true };
             
             try
             {
-                // Giả lập công việc tốn thời gian
+                // Simulate time-consuming work
                 Task.Delay(random.Next(1000, 3000)).Wait(); 
                 
                 switch (task.Type)
@@ -100,19 +100,19 @@ namespace Client
                         result.ResultData = HashString(task.Data);
                         break;
                     default:
-                        throw new Exception("Loai task khong biet");
+                        throw new Exception("Unknown task type");
                 }
             }
             catch (Exception e)
             {
                 result.Success = false;
-                result.ResultData = $"LOI THUC THI: {e.Message}";
+                result.ResultData = $"EXECUTION ERROR: {e.Message}";
             }
             
             return result;
         }
 
-        // --- Các hàm nghiệp vụ ---
+        // --- Business logic functions ---
         private static Random random = new Random();
 
         static bool IsPrime(int number)
@@ -137,7 +137,7 @@ namespace Client
                 {
                     builder.Append(bytes[i].ToString("x2"));
                 }
-                return builder.ToString().Substring(0, 16) + "..."; // Rút gọn cho dễ nhìn
+                return builder.ToString().Substring(0, 16) + "..."; // Shortened for readability
             }
         }
     }

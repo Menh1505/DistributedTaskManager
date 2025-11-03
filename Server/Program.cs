@@ -11,30 +11,30 @@ namespace Server
 {
     class Program
     {
-        // 1. Hàng đợi task (thread-safe)
+        // 1. Task queue (thread-safe)
         private static ConcurrentQueue<TaskMessage> _taskQueue = new ConcurrentQueue<TaskMessage>();
         
-        // 2. Danh sách quản lý client (thread-safe)
+        // 2. Client management list (thread-safe)
         private static ConcurrentDictionary<string, ClientHandler> _clientHandlers = new ConcurrentDictionary<string, ClientHandler>();
 
-        private static int _taskCounter = 0; // Để tạo task ID
+        private static int _taskCounter = 0; // For generating task IDs
 
         static async Task Main(string[] args)
         {
-            // Chạy 2 Task nền (background threads)
-            _ = TaskProducerAsync();      // Task 1: Liên tục tạo task mới
-            _ = TaskDispatcherAsync();    // Task 2: Liên tục điều phối task
+            // Run 2 background tasks (background threads)
+            _ = TaskProducerAsync();      // Task 1: Continuously create new tasks
+            _ = TaskDispatcherAsync();    // Task 2: Continuously dispatch tasks
 
-            // Task 3 (Main): Lắng nghe kết nối client
+            // Task 3 (Main): Listen for client connections
             await StartServerListenerAsync(); 
         }
 
-        // Vòng lặp chính: Lắng nghe client mới
+        // Main loop: Listen for new clients
         static async Task StartServerListenerAsync()
         {
             TcpListener server = new TcpListener(IPAddress.Any, 12345);
             server.Start();
-            Log("Server da khoi dong. Dang cho Clients...");
+            Log("Server started. Waiting for clients...");
 
             while (true)
             {
@@ -42,36 +42,36 @@ namespace Server
                 {
                     TcpClient client = await server.AcceptTcpClientAsync();
                     
-                    // Tạo một handler mới cho client
+                    // Create a new handler for the client
                     var clientHandler = new ClientHandler(client, _clientHandlers, Log);
                     _clientHandlers.TryAdd(clientHandler.Id, clientHandler);
 
-                    Log($"Client {clientHandler.Id} da ket noi. Tong so clients: {_clientHandlers.Count}");
+                    Log($"Client {clientHandler.Id} connected. Total clients: {_clientHandlers.Count}");
                     
-                    // Khởi chạy vòng lặp lắng nghe cho client này (không await)
+                    // Start listening loop for this client (don't await)
                     _ = clientHandler.StartListeningAsync();
                 }
                 catch (Exception e)
                 {
-                    Log($"Loi khi chap nhan client: {e.Message}");
+                    Log($"Error accepting client: {e.Message}");
                 }
             }
         }
 
-        // Vòng lặp (nền) 1: Bộ điều phối
+        // Background loop 1: Task dispatcher
         static async Task TaskDispatcherAsync()
         {
-            Log("[Dispatcher] Bat dau dieu phoi task...");
+            Log("[Dispatcher] Starting task dispatching...");
             while (true)
             {
                 if (!_taskQueue.IsEmpty)
                 {
-                    // Tìm client rảnh đầu tiên
+                    // Find the first idle client
                     var idleClient = _clientHandlers.Values.FirstOrDefault(c => c.Status == ClientStatus.Idle);
 
                     if (idleClient != null)
                     {
-                        // Có client rảnh & có task
+                        // There's an idle client & available task
                         if (_taskQueue.TryDequeue(out TaskMessage? task))
                         {
                             await idleClient.SendTaskAsync(task);
@@ -79,15 +79,15 @@ namespace Server
                     }
                 }
                 
-                // Tránh vắt kiệt CPU
+                // Avoid CPU exhaustion
                 await Task.Delay(100); 
             }
         }
 
-        // Vòng lặp (nền) 2: Bộ tạo task (Demo)
+        // Background loop 2: Task producer (Demo)
         static async Task TaskProducerAsync()
         {
-            Log("[Producer] Bat dau tao task...");
+            Log("[Producer] Starting task creation...");
             var random = new Random();
             while (true)
             {
@@ -96,17 +96,17 @@ namespace Server
                 {
                     TaskId = $"Task-{num}",
                     Type = num % 2 == 0 ? TaskType.CheckPrime : TaskType.HashText,
-                    Data = num % 2 == 0 ? random.Next(1000, 50000).ToString() : $"Chuoi can hash: {num}"
+                    Data = num % 2 == 0 ? random.Next(1000, 50000).ToString() : $"String to hash: {num}"
                 };
 
                 _taskQueue.Enqueue(task);
-                Log($"[Producer] Da them Task {task.TaskId} vao hang doi. ({_taskQueue.Count} tasks)");
+                Log($"[Producer] Added Task {task.TaskId} to queue. ({_taskQueue.Count} tasks)");
                 
-                await Task.Delay(2000); // Tạo task mới mỗi 2 giây
+                await Task.Delay(2000); // Create new task every 2 seconds
             }
         }
 
-        // Helper log (để phân biệt output)
+        // Helper log (to distinguish output)
         static void Log(string message)
         {
             Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message}");
