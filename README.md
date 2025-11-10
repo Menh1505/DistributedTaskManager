@@ -8,25 +8,19 @@ The project is divided into 3 main projects:
 
 ### 📁 Shared
 - **Message.cs**: Defines message types and data models
-- Contains enums and classes shared between Server and Client
+- Contains enums and classes shared between Server and ClientWebApp
 
 ### 🖥️ Server
 - **Program.cs**: Main server with multi-threading
-- **ClientHandler.cs**: Handles individual client connections
+- **ClientHandler.cs**: Handles individual client connections  
 - Features:
   - Multi-threading to serve multiple clients simultaneously
+  - ✅ **Manual task creation console**
   - Task queue with ConcurrentQueue
-  - Automatic task dispatcher
-  - Task producer (demo)
+  - ✅ **On-demand task dispatcher**
+  - Command-line interface for task management
 
-### 💻 Client
-- **Program.cs**: Console client connects and processes tasks automatically
-- Features:
-  - TCP connection to server
-  - Receive and process tasks (CheckPrime, HashText)
-  - Send results back to server
-
-### 🌐 ClientWebApp  (**NEW!** Manual Task Control)
+### 🌐 ClientWebApp (Manual Task Control)
 - **ASP.NET Core MVC** web application for manual task management
 - Features:
   - ✅ Web-based user interface
@@ -36,6 +30,12 @@ The project is divided into 3 main projects:
   - ✅ Real-time connection logs monitoring
   - ✅ Bootstrap-styled responsive UI
   - ✅ Auto-refresh capability
+  - ✅ TCP connection to server
+  - ✅ Task processing (Prime checking, Text hashing)
+  - ✅ Result reporting
+  - ✅ Auto-reconnection support
+  - ✅ **Automatic heartbeat ping** ❤️
+  - ✅ Message protocol compatibility
 
 ## 🚀 How to Run
 
@@ -54,13 +54,7 @@ cd Server
 dotnet run
 ```
 
-### Run Console Client (automatic mode)
-```bash
-cd Client
-dotnet run
-```
-
-### 🌐 Run Web Client (manual mode) ✨ **NEW!**
+### 🌐 Run Web Client (manual mode) ✨
 ```bash
 # Option 1: Use start script
 ./start-webclient.sh
@@ -71,15 +65,13 @@ dotnet run --urls "http://localhost:5000"
 ```
 Then open browser and visit: `http://localhost:5000`
 
-### Run Multiple Clients
-Open additional terminals and run the above command to have multiple clients simultaneously.
-
 ## 📊 Features
 
 ### Server Features
 - ✅ Multi-threading architecture
-- ✅ Concurrent task queue
-- ✅ Automatic task dispatching
+- ✅ Concurrent task queue  
+- ✅ **Manual task creation console** 🎮 (**NEW!**)
+- ✅ **On-demand task dispatching** ⚡ (**UPDATED!**)
 - ✅ Multi-client support
 - ✅ Real-time client status tracking
 - ✅ Graceful client disconnect handling
@@ -89,14 +81,18 @@ Open additional terminals and run the above command to have multiple clients sim
 - ✅ **Task retry mechanism** 🔁
 - ✅ **Dead-letter queue** for failed tasks
 - ✅ Automatic task recovery and reprocessing
+- ❌ ~~Automatic task generation~~ (**REMOVED!**)
 
 ### Client Features
-- ✅ TCP connection to server
+- ✅ Web-based user interface for manual task management
+- ✅ TCP connection to server through ClientWebApp
 - ✅ Task processing (Prime checking, Text hashing)
 - ✅ Result reporting
 - ✅ Auto-reconnection support
 - ✅ **Automatic heartbeat ping** ❤️
 - ✅ Message protocol compatibility
+- ✅ Manual connect/disconnect controls
+- ✅ Real-time connection monitoring
 
 ### Task Types
 1. **CheckPrime**: Prime number checking
@@ -107,6 +103,8 @@ Open additional terminals and run the above command to have multiple clients sim
 2. **Result**: Task result from client to server  
 3. **PingRequest**: Heartbeat ping from client ❤️
 4. **PingResponse**: Heartbeat pong from server ❤️
+5. **TaskRequest**: Client requests task from server 🆕
+6. **NoTaskAvailable**: Server has no tasks available 🆕
 
 ## 🔧 Configuration
 
@@ -222,20 +220,42 @@ Task Created → Task Queue → Assigned to Client → Processing
 
 ## 🧪 Testing
 
-### Test with 1 Server + Multiple Clients
+### Test Manual Task System ✨
 ```bash
-# Terminal 1 - Start Server
+# 1. Start server
 cd Server && dotnet run
 
-# Terminal 2 - Console Client (automatic)
-cd Client && dotnet run
+# 2. In another terminal, start web client
+cd ClientWebApp && dotnet run --urls "http://localhost:5000"
 
-# Terminal 3 - Another Console Client
-cd Client && dotnet run
+# 3. Create tasks in server console
+TaskManager> create prime 1000
+TaskManager> create batch hash 5
+TaskManager> status
 
-# Terminal 4 - Web Client (manual control)
+# 4. Request tasks in web browser (localhost:5000)
+# Open http://localhost:5000 in browser
+Click "Connect to Server"
+Click "Request New Task" → Task appears
+Click "Auto Complete Task" → Task completed
+```
+
+### Test with Multiple Web Clients
+```bash
+# Terminal 1 - Start Server with manual console
+cd Server && dotnet run
+
+# Terminal 2 - First Web Client 
 cd ClientWebApp && dotnet run --urls "http://localhost:5000"
 # Then open browser: http://localhost:5000
+
+# Terminal 3 - Second Web Client (if needed)
+cd ClientWebApp && dotnet run --urls "http://localhost:5001"
+# Then open browser: http://localhost:5001
+
+# Terminal 1 - Create tasks manually
+TaskManager> create batch prime 1000 1100
+TaskManager> clients
 ```
 
 ### Web Client Usage Flow
@@ -247,7 +267,7 @@ cd ClientWebApp && dotnet run --urls "http://localhost:5000"
 4. **Monitor**: Watch real-time logs and connection status
 5. **Disconnect**: Click "Disconnect" when done
 
-Observe the logs to see the server distributing tasks to different clients.
+Observe the logs to see the server distributing tasks to the web client interface.
 
 ## 🔧 Development
 
@@ -262,10 +282,7 @@ DistributedTaskManager/
 │   ├── Program.cs
 │   ├── ClientHandler.cs
 │   └── Server.csproj
-├── Client/                  # Console client (automatic)
-│   ├── Program.cs
-│   └── Client.csproj
-└── ClientWebApp/           # Web client (manual) ✨ NEW!
+└── ClientWebApp/           # Web client (manual)
     ├── Program.cs
     ├── Controllers/
     │   └── TaskController.cs
@@ -313,6 +330,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🔮 Future Enhancements
 
 - [✅] **Web-based client interface** (COMPLETED!)
+- [✅] **Manual task creation system** (COMPLETED!)
 - [ ] Web-based server monitoring dashboard
 - [ ] Database integration for task persistence  
 - [ ] Load balancing algorithms
@@ -328,11 +346,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ```
 ┌─────────────┐     ┌─────────────────────────────────┐     ┌─────────────┐
-│   Client 1  │────▶│            Server               │◀────│   Client 2  │
+│ Web Client 1│────▶│            Server               │◀────│ Web Client 2│
 └─────────────┘     │                                 │     └─────────────┘
                     │  ┌─────────────────────────────┐ │
-┌─────────────┐     │  │     Task Producer Thread   │ │     ┌─────────────┐
-│   Client 3  │────▶│  └─────────────────────────────┘ │◀────│   Client N  │
+┌─────────────┐     │  │   Manual Task Console       │ │     ┌─────────────┐
+│ Web Client 3│────▶│  └─────────────────────────────┘ │◀────│ Web Client N│
 └─────────────┘     │  ┌─────────────────────────────┐ │     └─────────────┘
                     │  │   Task Dispatcher Thread   │ │
                     │  └─────────────────────────────┘ │
