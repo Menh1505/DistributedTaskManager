@@ -1,0 +1,235 @@
+@model ClientWebApp.Models.TaskViewModel
+
+@{
+    ViewData["Title"] = "Task Manager Client";
+}
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="text-center text-primary mb-4">
+                <i class="bi bi-processor"></i> Distributed Task Manager Client
+            </h1>
+        </div>
+    </div>
+
+    @* Status Messages *@
+    @if (TempData["Message"] != null)
+    {
+        var messageType = TempData["MessageType"]?.ToString() ?? "info";
+        var alertClass = messageType switch 
+        {
+            "success" => "alert-success",
+            "error" => "alert-danger", 
+            "warning" => "alert-warning",
+            _ => "alert-info"
+        };
+
+        <div class="alert @alertClass alert-dismissible fade show" role="alert">
+            <i class="bi bi-info-circle"></i> @TempData["Message"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <div class="row">
+        @* Connection Panel *@
+        <div class="col-md-6 mb-4">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-wifi"></i> Connection Control
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <strong>Status:</strong> 
+                        <span class="badge @(Model.IsConnected ? "bg-success" : "bg-danger")">
+                            @(Model.IsConnected ? "Connected" : "Disconnected")
+                        </span>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <strong>Client Status:</strong> 
+                        <span class="badge bg-info">@Model.ClientStatus</span>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        @if (!Model.IsConnected)
+                        {
+                            <form asp-action="Connect" method="post" style="display: inline;">
+                                <button type="submit" class="btn btn-success btn-lg">
+                                    <i class="bi bi-power"></i> Connect to Server
+                                </button>
+                            </form>
+                        }
+                        else
+                        {
+                            <form asp-action="Disconnect" method="post" style="display: inline;">
+                                <button type="submit" class="btn btn-danger btn-lg">
+                                    <i class="bi bi-power"></i> Disconnect
+                                </button>
+                            </form>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* Task Control Panel *@
+        <div class="col-md-6 mb-4">
+            <div class="card shadow">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-list-task"></i> Task Control
+                    </h5>
+                </div>
+                <div class="card-body">
+                    @if (Model.CurrentTask == null)
+                    {
+                        <div class="alert alert-light text-center">
+                            <i class="bi bi-inbox"></i> No current task
+                        </div>
+                        
+                        <div class="d-grid">
+                            <form asp-action="RequestTask" method="post">
+                                <button type="submit" class="btn btn-primary btn-lg" 
+                                        @(!Model.IsConnected ? "disabled" : "")>
+                                    <i class="bi bi-download"></i> Request New Task
+                                </button>
+                            </form>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            <h6><strong>Current Task:</strong></h6>
+                            <p><strong>ID:</strong> @Model.CurrentTask.TaskId</p>
+                            <p><strong>Type:</strong> @Model.CurrentTask.Type</p>
+                            <p><strong>Data:</strong> @Model.CurrentTask.Data</p>
+                            <p><strong>Created:</strong> @Model.CurrentTask.CreatedAt.ToString("HH:mm:ss")</p>
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            @* Auto Complete Button *@
+                            <form asp-action="CompleteTask" method="post" style="display: inline;">
+                                <button type="submit" class="btn btn-success btn-lg">
+                                    <i class="bi bi-check-circle"></i> Auto Complete Task
+                                </button>
+                            </form>
+
+                            @* Custom Complete Form *@
+                            <div class="card mt-2">
+                                <div class="card-body p-3">
+                                    <form asp-action="CompleteTask" method="post">
+                                        <div class="mb-2">
+                                            <label class="form-label small"><strong>Custom Result:</strong></label>
+                                            <input type="text" name="customResult" class="form-control form-control-sm" 
+                                                   placeholder="Enter custom result (optional)">
+                                        </div>
+                                        
+                                        <div class="row">
+                                            <div class="col-6">
+                                                <button type="submit" name="success" value="true" 
+                                                        class="btn btn-sm btn-outline-success w-100">
+                                                    <i class="bi bi-check"></i> Complete (Success)
+                                                </button>
+                                            </div>
+                                            <div class="col-6">
+                                                <button type="submit" name="success" value="false" 
+                                                        class="btn btn-sm btn-outline-danger w-100">
+                                                    <i class="bi bi-x"></i> Complete (Fail)
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Connection Logs *@
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card shadow">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-terminal"></i> Connection Logs
+                    </h5>
+                    <form asp-action="ClearLogs" method="post" style="display: inline;">
+                        <button type="submit" class="btn btn-sm btn-outline-light">
+                            <i class="bi bi-trash"></i> Clear Logs
+                        </button>
+                    </form>
+                </div>
+                <div class="card-body p-0">
+                    <div class="bg-dark text-light p-3" style="height: 300px; overflow-y: auto; font-family: monospace;">
+                        @if (Model.ConnectionLogs?.Any() == true)
+                        {
+                            @foreach (var log in Model.ConnectionLogs.TakeLast(20))
+                            {
+                                <div class="mb-1">@log</div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="text-muted">No logs available</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @* Auto-refresh controls *@
+    <div class="row mt-3">
+        <div class="col-md-12 text-center">
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-outline-primary" onclick="toggleAutoRefresh()">
+                    <i class="bi bi-arrow-clockwise"></i> <span id="autoRefreshText">Enable Auto-refresh</span>
+                </button>
+                <button type="button" class="btn btn-outline-secondary" onclick="location.reload()">
+                    <i class="bi bi-arrow-repeat"></i> Refresh Now
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* Include Bootstrap Icons *@
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+<script>
+let autoRefreshInterval = null;
+let isAutoRefreshEnabled = false;
+
+function toggleAutoRefresh() {
+    const button = document.getElementById('autoRefreshText');
+    
+    if (isAutoRefreshEnabled) {
+        // Disable auto-refresh
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+        isAutoRefreshEnabled = false;
+        button.textContent = 'Enable Auto-refresh';
+    } else {
+        // Enable auto-refresh
+        autoRefreshInterval = setInterval(() => {
+            location.reload();
+        }, 3000); // Refresh every 3 seconds
+        isAutoRefreshEnabled = true;
+        button.textContent = 'Disable Auto-refresh';
+    }
+}
+
+// Auto-scroll logs to bottom on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const logsContainer = document.querySelector('.bg-dark');
+    if (logsContainer) {
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+});
+</script>
