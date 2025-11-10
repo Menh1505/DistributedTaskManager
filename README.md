@@ -20,11 +20,22 @@ The project is divided into 3 main projects:
   - Task producer (demo)
 
 ### 💻 Client
-- **Program.cs**: Client connects and processes tasks
+- **Program.cs**: Console client connects and processes tasks automatically
 - Features:
   - TCP connection to server
   - Receive and process tasks (CheckPrime, HashText)
   - Send results back to server
+
+### 🌐 ClientWebApp  (**NEW!** Manual Task Control)
+- **ASP.NET Core MVC** web application for manual task management
+- Features:
+  - ✅ Web-based user interface
+  - ✅ Manual connect/disconnect controls
+  - ✅ Manual task request button
+  - ✅ Manual task completion with custom results
+  - ✅ Real-time connection logs monitoring
+  - ✅ Bootstrap-styled responsive UI
+  - ✅ Auto-refresh capability
 
 ## 🚀 How to Run
 
@@ -43,11 +54,22 @@ cd Server
 dotnet run
 ```
 
-### Run Client (different terminal)
+### Run Console Client (automatic mode)
 ```bash
 cd Client
 dotnet run
 ```
+
+### 🌐 Run Web Client (manual mode) ✨ **NEW!**
+```bash
+# Option 1: Use start script
+./start-webclient.sh
+
+# Option 2: Run directly
+cd ClientWebApp
+dotnet run --urls "http://localhost:5000"
+```
+Then open browser and visit: `http://localhost:5000`
 
 ### Run Multiple Clients
 Open additional terminals and run the above command to have multiple clients simultaneously.
@@ -200,20 +222,30 @@ Task Created → Task Queue → Assigned to Client → Processing
 
 ## 🧪 Testing
 
-### Test with 1 Server + 3 Clients
+### Test with 1 Server + Multiple Clients
 ```bash
-# Terminal 1
+# Terminal 1 - Start Server
 cd Server && dotnet run
 
-# Terminal 2
+# Terminal 2 - Console Client (automatic)
 cd Client && dotnet run
 
-# Terminal 3
+# Terminal 3 - Another Console Client
 cd Client && dotnet run
 
-# Terminal 4
-cd Client && dotnet run
+# Terminal 4 - Web Client (manual control)
+cd ClientWebApp && dotnet run --urls "http://localhost:5000"
+# Then open browser: http://localhost:5000
 ```
+
+### Web Client Usage Flow
+1. **Connect**: Click "Connect to Server" button
+2. **Request Task**: Click "Request New Task" button  
+3. **Complete Task**: 
+   - Click "Auto Complete Task" for automatic processing
+   - Or enter custom result and click "Complete (Success/Fail)"
+4. **Monitor**: Watch real-time logs and connection status
+5. **Disconnect**: Click "Disconnect" when done
 
 Observe the logs to see the server distributing tasks to different clients.
 
@@ -230,9 +262,26 @@ DistributedTaskManager/
 │   ├── Program.cs
 │   ├── ClientHandler.cs
 │   └── Server.csproj
-└── Client/                  # Client application
+├── Client/                  # Console client (automatic)
+│   ├── Program.cs
+│   └── Client.csproj
+└── ClientWebApp/           # Web client (manual) ✨ NEW!
     ├── Program.cs
-    └── Client.csproj
+    ├── Controllers/
+    │   └── TaskController.cs
+    ├── Services/
+    │   ├── ITaskClientService.cs
+    │   └── TaskClientService.cs
+    ├── Models/
+    │   └── TaskViewModel.cs
+    ├── Views/
+    │   ├── Shared/
+    │   │   └── _Layout.cshtml
+    │   └── Task/
+    │       └── Index.cshtml
+    ├── ClientWebApp.csproj
+    ├── README.md
+    └── start-webclient.sh
 ```
 
 ### Dependencies
@@ -263,8 +312,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔮 Future Enhancements
 
-- [ ] Web-based monitoring dashboard
-- [ ] Database integration for task persistence
+- [✅] **Web-based client interface** (COMPLETED!)
+- [ ] Web-based server monitoring dashboard
+- [ ] Database integration for task persistence  
 - [ ] Load balancing algorithms
 - [ ] Task priority system
 - [ ] Client health monitoring
