@@ -17,6 +17,7 @@ namespace ClientWebApp.Services
         private TaskMessage? _currentTask;
         private bool _isProcessingTask = false;
         private readonly Random _random = new Random();
+        private CancellationTokenSource? _heartbeatCancellationToken;
 
         public bool IsConnected => _client?.Connected == true;
         public TaskMessage? CurrentTask => _currentTask;
@@ -43,6 +44,10 @@ namespace ClientWebApp.Services
                 
                 // Register with server
                 await RegisterWithServerAsync();
+                
+                // Start heartbeat sender in background
+                _heartbeatCancellationToken = new CancellationTokenSource();
+                _ = SendHeartbeatAsync(_heartbeatCancellationToken.Token);
             }
             catch (Exception ex)
             {
@@ -58,6 +63,9 @@ namespace ClientWebApp.Services
         {
             try
             {
+                // Stop heartbeat
+                _heartbeatCancellationToken?.Cancel();
+                
                 _client?.Close();
                 _client = null;
                 _stream = null;
@@ -127,6 +135,17 @@ namespace ClientWebApp.Services
                     var noTaskMessage = JsonSerializer.Deserialize<NoTaskAvailableMessage>(jsonMessage);
                     AddLog($"No tasks available: {noTaskMessage?.Message}");
                     return null;
+                }
+                else if (baseMessage?.Type == MessageType.PingResponse)
+                {
+                    var pongMessage = JsonSerializer.Deserialize<PongMessage>(jsonMessage);
+                    if (pongMessage != null)
+                    {
+                        AddLog($"[Heartbeat] Received pong from server");
+                        // This is just a heartbeat response, not a task response
+                        // Continue waiting for actual task response
+                        return await RequestTaskAsync();
+                    }
                 }
                 else
                 {
@@ -316,8 +335,37 @@ namespace ClientWebApp.Services
             AddLog("Logs cleared");
         }
 
+        // Send heartbeat ping to server every 10 seconds
+        private async Task SendHeartbeatAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested && IsConnected)
+                {
+                    var pingMessage = new PingMessage { ClientId = _clientId };
+                    string jsonPing = JsonSerializer.Serialize(pingMessage);
+                    byte[] data = Encoding.UTF8.GetBytes(jsonPing);
+                    
+                    await _stream!.WriteAsync(data, 0, data.Length, cancellationToken);
+                    AddLog("[Heartbeat] Sent ping to server");
+                    
+                    // Wait 10 seconds before next heartbeat
+                    await Task.Delay(10000, cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                AddLog("[Heartbeat] Heartbeat cancelled");
+            }
+            catch (Exception e)
+            {
+                AddLog($"[Heartbeat Error] {e.Message}");
+            }
+        }
+
         public void Dispose()
         {
+            _heartbeatCancellationToken?.Cancel();
             DisconnectAsync().Wait();
         }
     }
