@@ -88,9 +88,15 @@ namespace ClientWebApp.Services
 
             try
             {
-                AddLog("Waiting for task from server...");
+                AddLog("Requesting task from server...");
                 
-                // Listen for incoming task
+                // Send task request message
+                var taskRequest = new TaskRequestMessage { ClientId = _clientId };
+                string jsonRequest = JsonSerializer.Serialize(taskRequest);
+                byte[] requestData = Encoding.UTF8.GetBytes(jsonRequest);
+                await _stream!.WriteAsync(requestData, 0, requestData.Length);
+                
+                // Listen for response
                 byte[] buffer = new byte[4096];
                 int bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
                 
@@ -103,7 +109,7 @@ namespace ClientWebApp.Services
 
                 string jsonMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
                 
-                // Try to parse as different message types
+                // Try to parse response
                 var baseMessage = JsonSerializer.Deserialize<BaseMessage>(jsonMessage);
                 
                 if (baseMessage?.Type == MessageType.Task)
@@ -115,6 +121,12 @@ namespace ClientWebApp.Services
                         AddLog($"Received Task: {_currentTask.TaskId} - {_currentTask.Type} with data '{_currentTask.Data}'");
                         return _currentTask;
                     }
+                }
+                else if (baseMessage?.Type == MessageType.NoTaskAvailable)
+                {
+                    var noTaskMessage = JsonSerializer.Deserialize<NoTaskAvailableMessage>(jsonMessage);
+                    AddLog($"No tasks available: {noTaskMessage?.Message}");
+                    return null;
                 }
                 else
                 {
@@ -128,12 +140,12 @@ namespace ClientWebApp.Services
                     }
                 }
 
-                AddLog("Received non-task message from server");
+                AddLog("Received unexpected response from server");
                 return null;
             }
             catch (Exception ex)
             {
-                AddLog($"Error receiving task: {ex.Message}");
+                AddLog($"Error requesting task: {ex.Message}");
                 return null;
             }
         }
