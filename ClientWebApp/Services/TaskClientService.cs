@@ -104,20 +104,125 @@ namespace ClientWebApp.Services
                 byte[] requestData = Encoding.UTF8.GetBytes(jsonRequest);
                 await _stream!.WriteAsync(requestData, 0, requestData.Length);
                 
-                // Listen for response
-                byte[] buffer = new byte[4096];
-                int bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
-                
-                if (bytesRead == 0)
+                return await WaitForTaskResponseAsync();
+            }
+            catch (Exception ex)
+            {
+                AddLog($"Error requesting task: {ex.Message}");
+                return null;
+            }
+        }
+
+        private async Task<TaskMessage?> WaitForTaskResponseAsync()
+        {
+            int maxRetries = 10;  // Avoid infinite loop
+            int retryCount = 0;
+            
+            while (retryCount < maxRetries && IsConnected)
+            {
+                try
                 {
-                    AddLog("Server disconnected");
-                    await DisconnectAsync();
-                    return null;
+                    // Listen for response
+                    byte[] buffer = new byte[4096];
+                    int bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
+                    
+                    if (bytesRead == 0)
+                    {
+                        AddLog("Server disconnected");
+                        await DisconnectAsync();
+                        return null;
+                    }
+
+                    string receivedData = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    AddLog($"[Debug] Received data: {receivedData.Substring(0, Math.Min(100, receivedData.Length))}...");
+                    
+                    // Try to parse individual JSON messages
+                    var messages = SplitJsonMessages(receivedData);
+                    
+                    foreach (var jsonMessage in messages)
+                    {
+                        if (string.IsNullOrWhiteSpace(jsonMessage)) continue;
+                        
+                        var result = ProcessSingleMessage(jsonMessage);
+                        if (result.IsTaskResponse)
+                        {
+                            return result.Task;  // Found task response, return it
+                        }
+                    }
+                    
+                    retryCount++;
+                    // Continue listening for more messages
+                }
+                catch (Exception ex)
+                {
+                    AddLog($"Error waiting for task response: {ex.Message}");
+                    retryCount++;
+                    await Task.Delay(100);  // Small delay before retry
+                }
+            }
+            
+            AddLog("Timeout waiting for task response");
+            return null;
+        }
+
+        private List<string> SplitJsonMessages(string data)
+        {
+            var messages = new List<string>();
+            var currentMessage = "";
+            int braceCount = 0;
+            bool inString = false;
+            bool escapeNext = false;
+
+            foreach (char c in data)
+            {
+                currentMessage += c;
+
+                if (escapeNext)
+                {
+                    escapeNext = false;
+                    continue;
                 }
 
-                string jsonMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                
-                // Try to parse response
+                if (c == '\\')
+                {
+                    escapeNext = true;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString)
+                {
+                    if (c == '{')
+                        braceCount++;
+                    else if (c == '}')
+                        braceCount--;
+
+                    if (braceCount == 0 && currentMessage.Trim().EndsWith('}'))
+                    {
+                        messages.Add(currentMessage.Trim());
+                        currentMessage = "";
+                    }
+                }
+            }
+
+            // Add any remaining incomplete message
+            if (!string.IsNullOrWhiteSpace(currentMessage))
+            {
+                messages.Add(currentMessage.Trim());
+            }
+
+            return messages;
+        }
+
+        private (bool IsTaskResponse, TaskMessage? Task) ProcessSingleMessage(string jsonMessage)
+        {
+            try
+            {
                 var baseMessage = JsonSerializer.Deserialize<BaseMessage>(jsonMessage);
                 
                 if (baseMessage?.Type == MessageType.Task)
@@ -127,14 +232,14 @@ namespace ClientWebApp.Services
                     {
                         _currentTask = taskWrapper.Task;
                         AddLog($"Received Task: {_currentTask.TaskId} - {_currentTask.Type} with data '{_currentTask.Data}'");
-                        return _currentTask;
+                        return (true, _currentTask);
                     }
                 }
                 else if (baseMessage?.Type == MessageType.NoTaskAvailable)
                 {
                     var noTaskMessage = JsonSerializer.Deserialize<NoTaskAvailableMessage>(jsonMessage);
                     AddLog($"No tasks available: {noTaskMessage?.Message}");
-                    return null;
+                    return (true, null);  // This is a valid task response (no task)
                 }
                 else if (baseMessage?.Type == MessageType.PingResponse)
                 {
@@ -142,9 +247,16 @@ namespace ClientWebApp.Services
                     if (pongMessage != null)
                     {
                         AddLog($"[Heartbeat] Received pong from server");
-                        // This is just a heartbeat response, not a task response
-                        // Continue waiting for actual task response
-                        return await RequestTaskAsync();
+                        return (false, null);  // Not a task response, continue waiting
+                    }
+                }
+                else if (baseMessage?.Type == MessageType.RegisterResponse)
+                {
+                    var registerResponse = JsonSerializer.Deserialize<RegisterResponseMessage>(jsonMessage);
+                    if (registerResponse != null)
+                    {
+                        AddLog($"[Registration] Response: {registerResponse.Message}");
+                        return (false, null);  // Not a task response
                     }
                 }
                 else
@@ -155,18 +267,16 @@ namespace ClientWebApp.Services
                     {
                         _currentTask = legacyTask;
                         AddLog($"Received Legacy Task: {_currentTask.TaskId} - {_currentTask.Type} with data '{_currentTask.Data}'");
-                        return _currentTask;
+                        return (true, _currentTask);
                     }
                 }
-
-                AddLog("Received unexpected response from server");
-                return null;
             }
-            catch (Exception ex)
+            catch (JsonException ex)
             {
-                AddLog($"Error requesting task: {ex.Message}");
-                return null;
+                AddLog($"[JSON Error] Failed to parse message: {ex.Message}. Message: {jsonMessage.Substring(0, Math.Min(50, jsonMessage.Length))}...");
             }
+            
+            return (false, null);
         }
 
         public async Task<bool> CompleteTaskAsync(string result)
