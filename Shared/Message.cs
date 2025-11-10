@@ -23,7 +23,9 @@ namespace Shared
         PingRequest,
         PingResponse,
         Register,
-        RegisterResponse
+        RegisterResponse,
+        TaskRequest,
+        NoTaskAvailable
     }
 
     // Class sent from Server to Client
@@ -121,6 +123,29 @@ namespace Shared
         public RegisterResponseMessage()
         {
             Type = MessageType.RegisterResponse;
+        }
+    }
+
+    // Client task request message
+    public class TaskRequestMessage : BaseMessage
+    {
+        public string ClientId { get; set; } = string.Empty;
+        
+        public TaskRequestMessage()
+        {
+            Type = MessageType.TaskRequest;
+        }
+    }
+
+    // Server response when no tasks available
+    public class NoTaskAvailableMessage : BaseMessage
+    {
+        public string Message { get; set; } = "No tasks available";
+        public string ServerId { get; set; } = "Server";
+        
+        public NoTaskAvailableMessage()
+        {
+            Type = MessageType.NoTaskAvailable;
         }
     }
 }
