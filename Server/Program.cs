@@ -37,14 +37,17 @@ namespace Server
             // Restore queues from persistent storage
             await RestoreQueuesAsync();
 
-            // Run 5 background tasks (background threads)
-            _ = TaskProducerAsync();      // Task 1: Continuously create new tasks
-            _ = TaskDispatcherAsync();    // Task 2: Continuously dispatch tasks
-            _ = HeartbeatMonitorAsync();  // Task 3: Monitor client heartbeats
-            _ = DeadLetterMonitorAsync(); // Task 4: Monitor dead-letter queue
-            _ = PersistenceCleanupAsync(); // Task 5: Cleanup old completed tasks
+            // Run 4 background tasks (background threads)
+            // _ = TaskProducerAsync();      // REMOVED: No longer auto-create tasks
+            _ = TaskDispatcherAsync();    // Task 1: Continuously dispatch tasks
+            _ = HeartbeatMonitorAsync();  // Task 2: Monitor client heartbeats
+            _ = DeadLetterMonitorAsync(); // Task 3: Monitor dead-letter queue
+            _ = PersistenceCleanupAsync(); // Task 4: Cleanup old completed tasks
 
-            // Task 6 (Main): Listen for client connections
+            // Start console interface for manual task creation
+            StartConsoleInterface();
+
+            // Task 5 (Main): Listen for client connections
             await StartServerListenerAsync(); 
         }
 
@@ -127,29 +130,257 @@ namespace Server
             }
         }
 
-        // Background loop 2: Task producer (Demo)
-        static async Task TaskProducerAsync()
+        // Manual task creation methods (replaces automatic producer)
+        public static void CreateTask(TaskType type, string data)
         {
-            Log("[Producer] Starting task creation...");
-            var random = new Random();
-            while (true)
+            int num = _taskCounter++;
+            var task = new TaskMessage
             {
-                int num = _taskCounter++;
-                var task = new TaskMessage
-                {
-                    TaskId = $"Task-{num}",
-                    Type = num % 2 == 0 ? TaskType.CheckPrime : TaskType.HashText,
-                    Data = num % 2 == 0 ? random.Next(1000, 50000).ToString() : $"String to hash: {num}"
-                };
+                TaskId = $"Task-{num}",
+                Type = type,
+                Data = data,
+                CreatedAt = DateTime.Now
+            };
 
-                _taskQueue.Enqueue(task);
+            _taskQueue.Enqueue(task);
+            
+            // Persist task to storage (async fire-and-forget)
+            _ = Task.Run(async () => {
+                try
+                {
+                    await _taskPersistence.SaveTaskAsync(task, TaskStatus.Pending);
+                }
+                catch (Exception e)
+                {
+                    Log($"[TaskCreation] Error persisting task {task.TaskId}: {e.Message}");
+                }
+            });
+            
+            Log($"[TaskCreation] Created Task {task.TaskId} ({type}): {data}. Queue size: {_taskQueue.Count}");
+        }
+
+        public static void CreateMultipleTasks(TaskType type, string[] dataArray)
+        {
+            foreach (string data in dataArray)
+            {
+                CreateTask(type, data);
+            }
+            Log($"[TaskCreation] Created {dataArray.Length} tasks of type {type}");
+        }
+
+        // Console interface for manual task creation
+        public static void StartConsoleInterface()
+        {
+            _ = Task.Run(async () =>
+            {
+                Log("[Console] Manual task creation interface started. Type 'help' for commands.");
                 
-                // Persist task to storage
-                await _taskPersistence.SaveTaskAsync(task, TaskStatus.Pending);
-                
-                Log($"[Producer] Added Task {task.TaskId} to queue. ({_taskQueue.Count} tasks)");
-                
-                await Task.Delay(2000); // Create new task every 2 seconds
+                while (true)
+                {
+                    try
+                    {
+                        Console.Write("TaskManager> ");
+                        var input = Console.ReadLine();
+                        
+                        if (string.IsNullOrWhiteSpace(input))
+                            continue;
+
+                        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        var command = parts[0].ToLower();
+
+                        switch (command)
+                        {
+                            case "help":
+                                ShowHelp();
+                                break;
+                                
+                            case "create":
+                                HandleCreateCommand(parts);
+                                break;
+                                
+                            case "status":
+                                ShowStatus();
+                                break;
+                                
+                            case "stats":
+                                LogStatistics();
+                                break;
+                                
+                            case "clients":
+                                ShowClients();
+                                break;
+                                
+                            case "queue":
+                                ShowQueue();
+                                break;
+                                
+                            case "clear-deadletter":
+                                ClearDeadLetterQueue();
+                                break;
+                                
+                            case "reprocess-deadletter":
+                                ReprocessDeadLetterTasks();
+                                break;
+                                
+                            case "exit":
+                                Log("[Console] Shutting down server...");
+                                Environment.Exit(0);
+                                break;
+                                
+                            default:
+                                Log($"[Console] Unknown command: {command}. Type 'help' for available commands.");
+                                break;
+                        }
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"[Console] Error processing command: {e.Message}");
+                    }
+                }
+            });
+        }
+
+        private static void ShowHelp()
+        {
+            Log("[Console] Available commands:");
+            Log("  create prime <number>          - Create a prime check task");
+            Log("  create hash <text>             - Create a hash text task");
+            Log("  create batch prime <start> <end> - Create multiple prime tasks");
+            Log("  create batch hash <count>      - Create multiple hash tasks");
+            Log("  status                         - Show system status");
+            Log("  stats                          - Show detailed statistics");
+            Log("  clients                        - Show connected clients");
+            Log("  queue                          - Show task queue status");
+            Log("  clear-deadletter               - Clear dead-letter queue");
+            Log("  reprocess-deadletter           - Reprocess dead-letter tasks");
+            Log("  exit                           - Shutdown server");
+        }
+
+        private static void HandleCreateCommand(string[] parts)
+        {
+            if (parts.Length < 3)
+            {
+                Log("[Console] Invalid create command. Usage: create <type> <data> or create batch <type> <params>");
+                return;
+            }
+
+            var type = parts[1].ToLower();
+            
+            if (type == "batch")
+            {
+                HandleBatchCreateCommand(parts);
+                return;
+            }
+
+            var taskType = type switch
+            {
+                "prime" => TaskType.CheckPrime,
+                "hash" => TaskType.HashText,
+                _ => (TaskType?)null
+            };
+
+            if (!taskType.HasValue)
+            {
+                Log("[Console] Invalid task type. Use 'prime' or 'hash'.");
+                return;
+            }
+
+            var data = string.Join(" ", parts.Skip(2));
+            CreateTask(taskType.Value, data);
+        }
+
+        private static void HandleBatchCreateCommand(string[] parts)
+        {
+            if (parts.Length < 4)
+            {
+                Log("[Console] Invalid batch create command.");
+                return;
+            }
+
+            var type = parts[2].ToLower();
+            var taskType = type switch
+            {
+                "prime" => TaskType.CheckPrime,
+                "hash" => TaskType.HashText,
+                _ => (TaskType?)null
+            };
+
+            if (!taskType.HasValue)
+            {
+                Log("[Console] Invalid task type for batch. Use 'prime' or 'hash'.");
+                return;
+            }
+
+            if (taskType == TaskType.CheckPrime && parts.Length >= 5)
+            {
+                if (int.TryParse(parts[3], out int start) && int.TryParse(parts[4], out int end))
+                {
+                    var data = new List<string>();
+                    for (int i = start; i <= end; i++)
+                    {
+                        data.Add(i.ToString());
+                    }
+                    CreateMultipleTasks(taskType.Value, data.ToArray());
+                }
+                else
+                {
+                    Log("[Console] Invalid range for prime batch. Use: create batch prime <start> <end>");
+                }
+            }
+            else if (taskType == TaskType.HashText)
+            {
+                if (int.TryParse(parts[3], out int count))
+                {
+                    var data = new List<string>();
+                    for (int i = 0; i < count; i++)
+                    {
+                        data.Add($"Hash text #{i + 1} - {DateTime.Now:HH:mm:ss.fff}");
+                    }
+                    CreateMultipleTasks(taskType.Value, data.ToArray());
+                }
+                else
+                {
+                    Log("[Console] Invalid count for hash batch. Use: create batch hash <count>");
+                }
+            }
+        }
+
+        private static void ShowStatus()
+        {
+            Log($"[Console] System Status:");
+            Log($"  Task Queue: {_taskQueue.Count} pending");
+            Log($"  Dead-Letter Queue: {_deadLetterQueue.Count} failed");
+            Log($"  Connected Clients: {_clientHandlers.Count}");
+            Log($"  Registered Clients: {_clientHandlers.Values.Count(c => c.IsRegistered)}");
+            Log($"  Idle Clients: {_clientHandlers.Values.Count(c => c.Status == ClientStatus.Idle)}");
+            Log($"  Busy Clients: {_clientHandlers.Values.Count(c => c.Status == ClientStatus.Busy)}");
+        }
+
+        private static void ShowClients()
+        {
+            Log($"[Console] Connected Clients ({_clientHandlers.Count}):");
+            foreach (var client in _clientHandlers.Values)
+            {
+                var status = client.IsRegistered ? $"{client.Status}" : "Unregistered";
+                var capabilities = client.IsRegistered ? string.Join(",", client.GetCapabilities()) : "N/A";
+                Log($"  {client.Id}: {client.ClientName} - Status: {status} - Capabilities: [{capabilities}]");
+            }
+        }
+
+        private static void ShowQueue()
+        {
+            Log($"[Console] Task Queue Status:");
+            Log($"  Pending Tasks: {_taskQueue.Count}");
+            Log($"  Dead-Letter Tasks: {_deadLetterQueue.Count}");
+            
+            if (_taskQueue.Count > 0)
+            {
+                Log("  Next 5 pending tasks:");
+                var tasks = _taskQueue.ToArray().Take(5);
+                foreach (var task in tasks)
+                {
+                    Log($"    {task.TaskId}: {task.Type} - {task.Data}");
+                }
             }
         }
 

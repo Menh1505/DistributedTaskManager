@@ -116,7 +116,7 @@ namespace Server
             }
         }
 
-        // Process incoming messages (task results or heartbeat)
+        // Process incoming messages (task results, heartbeat, or task requests)
         private async Task ProcessIncomingMessage(string jsonMessage)
         {
             try
@@ -146,6 +146,14 @@ namespace Server
                             
                             // IMPORTANT: Mark client as idle again
                             Status = ClientStatus.Idle;
+                        }
+                        break;
+
+                    case MessageType.TaskRequest:
+                        var taskRequestMessage = JsonSerializer.Deserialize<TaskRequestMessage>(jsonMessage);
+                        if (taskRequestMessage != null && IsRegistered && Status == ClientStatus.Idle)
+                        {
+                            await HandleTaskRequest();
                         }
                         break;
 
@@ -217,7 +225,62 @@ namespace Server
             }
         }
 
-        // Handle client registration with capabilities
+        // Handle client task request
+        private async Task HandleTaskRequest()
+        {
+            try
+            {
+                // Check if there's a task available that this client can handle
+                TaskMessage? availableTask = null;
+                
+                // Look for a task in the queue that matches client capabilities
+                var queueArray = _taskQueue.ToArray();
+                foreach (var task in queueArray)
+                {
+                    if (CanHandleTask(task.Type) && _taskQueue.TryDequeue(out var dequeuedTask) && dequeuedTask.TaskId == task.TaskId)
+                    {
+                        availableTask = dequeuedTask;
+                        break;
+                    }
+                }
+
+                if (availableTask != null)
+                {
+                    // Send the task to client
+                    await SendTaskAsync(availableTask);
+                    _log($"[TaskRequest] Sent task {availableTask.TaskId} to requesting client {Id}");
+                }
+                else
+                {
+                    // No task available, send "no task" response
+                    await SendNoTaskAvailableResponse();
+                    _log($"[TaskRequest] No tasks available for client {Id}");
+                }
+            }
+            catch (Exception e)
+            {
+                _log($"[TaskRequest Error] Failed to handle task request from Client {Id}: {e.Message}");
+            }
+        }
+
+        // Send "no task available" response to client
+        private async Task<bool> SendNoTaskAvailableResponse()
+        {
+            try
+            {
+                var noTaskMessage = new NoTaskAvailableMessage();
+                string jsonResponse = JsonSerializer.Serialize(noTaskMessage);
+                byte[] data = Encoding.UTF8.GetBytes(jsonResponse);
+                
+                await _stream.WriteAsync(data, 0, data.Length);
+                return true;
+            }
+            catch (Exception e)
+            {
+                _log($"[Error] Failed to send no-task response to Client {Id}: {e.Message}");
+                return false;
+            }
+        }
         private async Task HandleClientRegistration(RegisterMessage registerMessage)
         {
             try
@@ -380,6 +443,12 @@ namespace Server
                 return "Not registered";
             
             return $"Name: {ClientName}, Capabilities: [{string.Join(", ", Capabilities)}]";
+        }
+
+        // Get capabilities list
+        public List<TaskType> GetCapabilities()
+        {
+            return new List<TaskType>(Capabilities);
         }
 
         // IDisposable implementation
